@@ -395,10 +395,10 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			const rows = execRows(
 				db,
 				`SELECT * FROM memory
-         WHERE (? IS NULL OR project = ?)
+         WHERE project IS NULL OR project = ?
          ORDER BY updated_at DESC
          LIMIT ?`,
-				[project ?? null, project ?? null, limit],
+				[project ?? null, limit],
 			);
 			return rows.map(rowToMemory);
 		},
