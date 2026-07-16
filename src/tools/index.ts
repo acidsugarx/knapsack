@@ -127,7 +127,12 @@ export function registerTools(
 			}
 
 			// Get candidates via FTS5/LIKE
-			const candidates = db.searchMemory(params.query, 20, params.type);
+			const candidates = db.searchMemory(
+				params.query,
+				20,
+				params.type,
+				store.projectRoot ?? undefined,
+			);
 
 			if (candidates.length === 0) {
 				return {

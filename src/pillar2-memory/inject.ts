@@ -62,7 +62,7 @@ export function memoryInjectHook(
 	if (terms.length > 0) {
 		for (const term of terms.slice(0, 3)) {
 			// Search each term, get up to 5 results per term
-			const results = db.searchMemory(term, 5);
+			const results = db.searchMemory(term, 5, undefined, project);
 			for (const m of results) {
 				candidates.set(m.id, m);
 			}
@@ -70,7 +70,7 @@ export function memoryInjectHook(
 	}
 
 	// 2. Add recent project + global memories as fallback
-	const recent = db.getRecentMemory(MAX_CANDIDATES, project);
+	const recent = db.getRecentMemory(MAX_CANDIDATES, project, store.sessionId ?? undefined);
 	for (const m of recent) {
 		candidates.set(m.id, m);
 	}

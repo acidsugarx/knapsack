@@ -25,6 +25,7 @@
  * @packageDocumentation
  */
 
+import { estimateTokens } from "../core/tokens";
 import type { CompressionResult } from "../core/types";
 
 // ── Strategy interface ──────────────────────────────────
@@ -180,11 +181,13 @@ export function createRegistry(): StrategyRegistry {
 		compress(output, toolName) {
 			if (!output.trim()) return null;
 
+			const outputTokens = estimateTokens(output);
+
 			// 1. Try content detectors (auto-routing)
 			for (const detector of detectors) {
 				if (detector.detect(output)) {
 					const strategy = strategies.get(detector.name);
-					if (strategy) {
+					if (strategy && outputTokens >= strategy.threshold) {
 						const result = strategy.compress(output, { toolName });
 						if (result && result.savingsPercent > 0) return result;
 					}
@@ -195,7 +198,7 @@ export function createRegistry(): StrategyRegistry {
 			const strategyName = toolName ? toolMapping.get(toolName) : undefined;
 			if (strategyName) {
 				const strategy = strategies.get(strategyName);
-				if (strategy) {
+				if (strategy && outputTokens >= strategy.threshold) {
 					const result = strategy.compress(output, { toolName });
 					if (result && result.savingsPercent > 0) return result;
 				}

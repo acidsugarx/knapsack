@@ -15,7 +15,23 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
+
+/**
+ * Validate that a resolved path stays within the vault root.
+ * Prevents path traversal (e.g., title="../../../etc/cron.d/backdoor").
+ */
+function isPathSafe(vaultPath: string, targetPath: string): boolean {
+	const rel = relative(vaultPath, resolve(targetPath));
+	return !rel.startsWith("..") && !rel.startsWith("/");
+}
+
+/**
+ * Sanitize a title into a safe filename — strip path separators.
+ */
+function sanitizeTitle(title: string): string {
+	return title.replace(/[/\\:*?"<>|]/g, "-").trim() || "untitled";
+}
 
 /**
  * Create or update a markdown note in the Obsidian vault root.
@@ -65,8 +81,13 @@ export function writeNote(vaultPath: string | null, title: string, content: stri
 export function readNoteText(vaultPath: string | null, title: string): string | null {
 	if (!vaultPath) return null;
 
-	const filename = title.endsWith(".md") ? title : `${title}.md`;
+	const safeTitle = sanitizeTitle(title);
+	const filename = safeTitle.endsWith(".md") ? safeTitle : `${safeTitle}.md`;
 	const notePath = join(vaultPath, filename);
+
+	if (!isPathSafe(vaultPath, notePath)) {
+		return null; // Path traversal blocked
+	}
 
 	if (!existsSync(notePath)) return null;
 

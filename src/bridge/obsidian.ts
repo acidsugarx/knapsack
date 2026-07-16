@@ -20,7 +20,7 @@
  * @module obsidian-bridge
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -130,20 +130,22 @@ export function searchVault(vaultPath: string | null, query: string, limit = 20)
 	if (!vaultPath) return null;
 
 	try {
-		// Try ripgrep first (much faster for large vaults)
-		const output = execSync(
-			`rg --no-heading --with-filename --line-number --max-count=1 -e "${query.replace(/"/g, '\\"')}" "${vaultPath}" 2>/dev/null | head -n ${limit}`,
+		// Use execFileSync to prevent shell injection — args passed as array elements
+		const output = execFileSync(
+			"rg",
+			["--no-heading", "--with-filename", "--line-number", "--max-count=1", "-e", query, vaultPath],
 			{ encoding: "utf-8", timeout: 5000, maxBuffer: 1024 * 1024 },
 		);
-		return output.trim().split("\n").filter(Boolean);
+		return output.trim().split("\n").filter(Boolean).slice(0, limit);
 	} catch {
 		// ripgrep not available or no results, try grep
 		try {
-			const output = execSync(
-				`grep -rn --include="*.md" -m1 "${query.replace(/"/g, '\\"')}" "${vaultPath}" 2>/dev/null | head -n ${limit}`,
-				{ encoding: "utf-8", timeout: 5000, maxBuffer: 1024 * 1024 },
-			);
-			return output.trim().split("\n").filter(Boolean);
+			const output = execFileSync("grep", ["-rn", "--include=*.md", "-m1", query, vaultPath], {
+				encoding: "utf-8",
+				timeout: 5000,
+				maxBuffer: 1024 * 1024,
+			});
+			return output.trim().split("\n").filter(Boolean).slice(0, limit);
 		} catch {
 			return [];
 		}

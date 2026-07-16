@@ -40,6 +40,15 @@ import { join } from "node:path";
  * @module ccr
  */
 
+const HASH_PATTERN = /^[a-f0-9]{1,64}$/;
+
+/**
+ * Validate that a hash contains only hex characters (no path traversal).
+ */
+function isValidHash(hash: string): boolean {
+	return HASH_PATTERN.test(hash);
+}
+
 const CCR_DIR = "knapsack/compress";
 
 /**
@@ -111,6 +120,7 @@ export function cache(
  */
 export function retrieve(vaultPath: string | null, hash: string): string | null {
 	if (!vaultPath) return null;
+	if (!isValidHash(hash)) return null; // Block path traversal
 
 	const notePath = join(vaultPath, CCR_DIR, `${hash}.md`);
 	if (!existsSync(notePath)) return null;

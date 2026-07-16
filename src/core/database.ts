@@ -191,13 +191,18 @@ export interface KnapsackDB {
 		sourceSession?: string;
 	}): MemoryEntry;
 
-	searchMemory(query: string, limit?: number, typeFilter?: string[]): MemoryEntry[];
+	searchMemory(
+		query: string,
+		limit?: number,
+		typeFilter?: string[],
+		project?: string,
+	): MemoryEntry[];
 
 	getMemory(id: string): MemoryEntry | undefined;
 
 	deleteMemory(id: string): boolean;
 
-	getRecentMemory(limit?: number, project?: string): MemoryEntry[];
+	getRecentMemory(limit?: number, project?: string, sessionId?: string): MemoryEntry[];
 
 	recordCompression(input: {
 		toolName: string;
@@ -337,7 +342,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			};
 		},
 
-		searchMemory(query, limit = 10, typeFilter) {
+		searchMemory(query, limit = 10, typeFilter, project) {
 			// Split multi-word queries into individual terms for broader matching
 			const terms = query
 				.toLowerCase()
@@ -349,10 +354,11 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			const allCandidates: MemoryEntry[] = [];
 
 			for (const term of terms.slice(0, 5)) {
-				const rows = execRows(db, "SELECT * FROM memory WHERE LOWER(content) LIKE ? LIMIT ?", [
-					`%${term}%`,
-					limit,
-				]);
+				const rows = execRows(
+					db,
+					"SELECT * FROM memory WHERE LOWER(content) LIKE ? AND (project IS NULL OR project = ?) LIMIT ?",
+					[`%${term}%`, project ?? null, limit],
+				);
 				for (const row of rows) {
 					const entry = rowToMemory(row);
 					if (!seen.has(entry.id)) {
@@ -382,14 +388,15 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			return before ? Number((before as Record<string, unknown>).cnt ?? 0) > 0 : false;
 		},
 
-		getRecentMemory(limit = 20, project) {
+		getRecentMemory(limit = 20, project, sessionId) {
 			const rows = execRows(
 				db,
 				`SELECT * FROM memory
-         WHERE project IS NULL OR project = ?
+         WHERE (project IS NULL OR project = ?)
+         AND (scope != 'session' OR source_session = ?)
          ORDER BY updated_at DESC
          LIMIT ?`,
-				[project ?? null, limit],
+				[project ?? null, sessionId ?? null, limit],
 			);
 			return rows.map(rowToMemory);
 		},

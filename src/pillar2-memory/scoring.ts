@@ -75,10 +75,9 @@ export function scoreAndRank(
 			}
 		}
 
-		// Normalize relevance to 0-1 range
-		// Max possible: len(queryTerms) × maxIDF × (∞ / ∞) ~= len(queryTerms) × log(N)
-		const maxRelevance = queryTerms.length * Math.log(allEntries.length + 1);
-		const normalizedRelevance = maxRelevance > 0 ? relevance / maxRelevance : 0;
+		// Normalize relevance to 0-1 using sigmoid — stable regardless of DB size
+		// sigmoid maps raw relevance to (0,1), preserving relative ordering
+		const normalizedRelevance = relevance > 0 ? relevance / (relevance + 1.5) : 0;
 
 		// Recency: 1.0 for < 1 hour, decays to 0.1 after 30 days
 		const ageMs = Date.now() - entry.recency;
