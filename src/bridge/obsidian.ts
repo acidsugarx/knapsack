@@ -43,13 +43,21 @@ interface ObsidianConfig {
 /**
  * Discover the user's Obsidian vault path.
  *
- * Checks common config file locations based on the OS, parses the JSON,
- * and prefers the vault named "SECOND_BRAIN" (most common main vault name).
- * Falls back to the first available vault if SECOND_BRAIN is not found.
+ * Resolution order:
+ * 1. `KNAPSACK_OBSIDIAN_VAULT` environment variable (absolute path)
+ * 2. Auto-discovery from `obsidian.json` (prefers "SECOND_BRAIN" vault)
+ * 3. null — Obsidian features disabled, compression still works
  *
  * @returns Absolute path to the vault root, or null if no vault found
  */
 export function discoverVault(): string | null {
+	// 1. Explicit override via environment variable
+	const envPath = process.env.KNAPSACK_OBSIDIAN_VAULT;
+	if (envPath && existsSync(envPath)) {
+		return envPath;
+	}
+
+	// 2. Auto-discovery from Obsidian config
 	const configPath = findObsidianConfig();
 	if (!configPath || !existsSync(configPath)) return null;
 
