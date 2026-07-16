@@ -462,4 +462,94 @@ export function registerTools(
 			};
 		},
 	});
+
+	// ── knapsack_anchor ──────────────────────────────────
+	pi.registerTool({
+		name: "knapsack_anchor",
+		label: "Knapsack Anchor",
+		description:
+			"Declare a decision anchor with violation signals. Knapsack will monitor " +
+			"future tool outputs and flag drift if the signals appear. " +
+			"Example: statement='Use sql.js not better-sqlite3' signals=['better-sqlite3','node-gyp'].",
+		promptSnippet: "Declare a decision anchor for drift detection",
+		promptGuidelines: [
+			"Use knapsack_anchor when a decision has a clear 'do not do X' boundary. " +
+				"The violation signals are keywords that indicate the decision was violated.",
+		],
+		parameters: Type.Object({
+			statement: Type.String({
+				description: "The decision statement (e.g., 'Use sql.js, not better-sqlite3')",
+			}),
+			signals: Type.Array(Type.String(), {
+				description: "Keywords that indicate drift if found in code or output",
+			}),
+		}),
+		async execute(_toolCallId, params): Promise<any> {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				return {
+					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
+					details: {},
+				};
+			}
+
+			const content = `[anchor] ${params.statement} | signals: ${params.signals.join(", ")}`;
+			const entry = db.saveMemory({
+				content,
+				type: "constraint",
+				scope: "project",
+				project: store.projectRoot ?? undefined,
+				importance: 0.9,
+				sourceSession: store.sessionId ?? undefined,
+			});
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: `✅ Anchor declared: ${params.statement}\nMonitoring for: ${params.signals.join(", ")}`,
+					},
+				],
+				details: { id: entry.id, signals: params.signals },
+			};
+		},
+	});
+
+	// ── knapsack_drift ────────────────────────────────────
+	pi.registerTool({
+		name: "knapsack_drift",
+		label: "Knapsack Drift",
+		description:
+			"Check for decision drift — scans recent tool outputs for violation signals " +
+			"from declared anchors. Returns list of anchors with matched signals.",
+		promptSnippet: "Check for decision drift on declared anchors",
+		promptGuidelines: ["Call knapsack_drift to check if code reality has diverged from decisions."],
+		parameters: Type.Object({
+			content: Type.Optional(
+				Type.String({
+					description: "Specific text to check. If omitted, checks nothing (use content param).",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params): Promise<any> {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				return {
+					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
+					details: {},
+				};
+			}
+
+			const { checkDrift, formatDriftReport } = await import("../pillar2-memory/drift");
+			const detections = checkDrift(db, params.content ?? "", store.projectRoot ?? undefined);
+			const report = formatDriftReport(detections);
+
+			return {
+				content: [{ type: "text" as const, text: report }],
+				details: { driftCount: detections.length },
+			};
+		},
+	});
 }

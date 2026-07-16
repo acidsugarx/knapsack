@@ -90,18 +90,43 @@ export function registerCommands(
 				return;
 			}
 
-			// For now, just show what we have
-			const memories = db.getRecentMemory(5, store.projectRoot ?? undefined);
+			// Find the session JSONL file
+			const { existsSync } = await import("node:fs");
+			const sessionDir = `${process.env.HOME ?? "~"}/.pi/agent/sessions`;
+			const sessionFile = store.sessionId ? findSessionFile(sessionDir, store.sessionId) : null;
 
-			if (memories.length === 0) {
-				ctx.ui.notify("No memories to learn from in this project yet.", "info");
+			if (!sessionFile || !existsSync(sessionFile)) {
+				ctx.ui.notify("No session file found for analysis.", "warning");
 				return;
 			}
 
-			ctx.ui.notify(
-				`Recent learnings (${memories.length}):\n${memories.map((m) => `  [${m.type}] ${m.content}`).join("\n")}`,
-				"info",
+			// Analyze
+			const { analyzeSession, saveAnalysisToMemory, formatAnalysis } = await import(
+				"../pillar2-memory/session-analysis"
 			);
+			const analysis = analyzeSession(sessionFile);
+			const saved = saveAnalysisToMemory(analysis, db, store);
+			const report = formatAnalysis(analysis);
+
+			ctx.ui.notify(report, saved > 0 ? "info" : "info");
 		},
 	});
+}
+
+/**
+ * Find the session JSONL file by session ID.
+ */
+function findSessionFile(sessionDir: string, sessionId: string): string | null {
+	const { readdirSync } = require("node:fs");
+	const { join } = require("node:path");
+	try {
+		for (const dir of readdirSync(sessionDir, { recursive: true, withFileTypes: true })) {
+			if (dir.name.includes(sessionId)) {
+				return join(dir.parentPath ?? sessionDir, dir.name);
+			}
+		}
+	} catch {
+		// Session dir not found
+	}
+	return null;
 }

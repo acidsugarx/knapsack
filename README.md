@@ -129,11 +129,16 @@ All discarded content is recoverable via `knapsack_retrieve(hash)` — the full 
 
 ## Roadmap
 
-- [ ] **v0.2**: Semantic/embedding search for memory
-- [ ] **v0.2**: Tree-sitter code compression (AST outline)
-- [ ] **v0.3**: JSON compression strategy
-- [ ] **v0.3**: Drift detection (linksee-style decision anchors)
-- [ ] **v0.4**: `/knapsack-learn` full session analysis
+- [x] **v0.1**: Compression (bash, grep, find, code, JSON) + CCR + memory
+- [x] **v0.1**: Plugin architecture (StrategyRegistry + ContentDetector)
+- [x] **v0.2**: BM25 semantic search (token overlap + IDF + importance + recency)
+- [x] **v0.2**: Code compression (regex-based, tree-sitter deferred — Node 26 incompatible)
+- [x] **v0.2**: JSON compression (shape inference + numeric stats)
+- [x] **v0.2**: Drift detection (decision anchors with violation signals)
+- [x] **v0.2**: `/knapsack-learn` full session analysis
+- [x] **v0.2**: Security hardening (path validation, hash validation, execFileSync)
+- [x] **v0.2**: Zettelkasten notes (`knapsack_note`)
+- [x] **v0.2**: Benchmark suite (35 tests, signal preservation checks)
 - [ ] **v1.0**: npm publish
 
 ## Development

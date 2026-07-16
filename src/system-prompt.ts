@@ -43,6 +43,8 @@ hypothesis — working theory to validate later
 <may>
 - knapsack_obsidian("query") — search your Obsidian knowledge base
 - knapsack_note(title, content) — write a note to Obsidian vault
+- knapsack_anchor(statement, signals) — declare a decision boundary for drift detection
+- knapsack_drift(content) — check if code diverged from decisions
 - knapsack_stats — check token savings this session
 - knapsack_forget(id) — delete outdated memories
 </may>
