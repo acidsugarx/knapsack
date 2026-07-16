@@ -338,47 +338,36 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		},
 
 		searchMemory(query, limit = 10, typeFilter) {
-			// Use LIKE search if FTS5 is not available
-			if (!hasFts5) {
-				const rows = execRows(
-					db,
-					`SELECT * FROM memory WHERE content LIKE ? ORDER BY importance DESC, recency DESC LIMIT ?`,
-					[`%${query}%`, limit],
-				);
-				const results = rows.map(rowToMemory);
-				return typeFilter ? results.filter((r) => typeFilter.includes(r.type)) : results;
+			// Split multi-word queries into individual terms for broader matching
+			const terms = query
+				.toLowerCase()
+				.split(/\s+/)
+				.filter((t) => t.length >= 2);
+
+			// Collect candidates from each term
+			const seen = new Set<string>();
+			const allCandidates: MemoryEntry[] = [];
+
+			for (const term of terms.slice(0, 5)) {
+				const rows = execRows(db, "SELECT * FROM memory WHERE LOWER(content) LIKE ? LIMIT ?", [
+					`%${term}%`,
+					limit,
+				]);
+				for (const row of rows) {
+					const entry = rowToMemory(row);
+					if (!seen.has(entry.id)) {
+						seen.add(entry.id);
+						allCandidates.push(entry);
+					}
+				}
 			}
 
-			const escaped = query.replace(/['"]/g, "").replace(/\s+/g, " AND ");
-			if (!escaped) return [];
-
-			let rows: Record<string, unknown>[];
-			try {
-				rows = execRows(
-					db,
-					`SELECT m.* FROM memory m
-           INNER JOIN memory_fts fts ON m.rowid = fts.rowid
-           WHERE memory_fts MATCH ?
-           ORDER BY rank
-           LIMIT ?`,
-					[escaped, limit * 2],
-				);
-			} catch {
-				// FTS5 parse error — fall back to LIKE
-				rows = execRows(
-					db,
-					`SELECT * FROM memory WHERE content LIKE ? ORDER BY importance DESC, recency DESC LIMIT ?`,
-					[`%${query}%`, limit],
-				);
-				const results = rows.map(rowToMemory);
-				return typeFilter ? results.filter((r) => typeFilter.includes(r.type)) : results;
-			}
-
-			const results = rows.map(rowToMemory);
+			let results = allCandidates;
 			if (typeFilter) {
-				return results.filter((r) => typeFilter.includes(r.type)).slice(0, limit);
+				results = results.filter((r) => typeFilter.includes(r.type));
 			}
-			return results.slice(0, limit);
+
+			return results.slice(0, limit * 2);
 		},
 
 		getMemory(id) {
