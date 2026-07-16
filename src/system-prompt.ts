@@ -1,66 +1,55 @@
 /**
  * Auto-inject Knapsack usage guidance into Pi's system prompt.
  *
- * ## Why this exists
+ * ## Design principles
  *
- * Without this, the model doesn't know it SHOULD use Knapsack tools.
- * It sees them in the "Available tools" section but won't proactively
- * call knapsack_search before tasks or knapsack_save after decisions.
+ * Written following prompt engineering best practices from Anthropic,
+ * OpenAI, and DeepSeek for tool-calling agents:
  *
- * This injection tells the model WHEN and WHY to use each Knapsack tool,
- * making the extension truly autonomous — no user prompting needed.
- *
- * ## Token budget
- *
- * The injected block is ~300 tokens. It's always present (unlike memory
- * injection which only fires when memories exist). This is intentional:
- * usage guidance is higher-value than the token cost.
+ * 1. **XML structure** — Claude reads XML tags as semantic boundaries
+ * 2. **Top + bottom anchoring** — critical triggers at both ends
+ * 3. **"Before X, do Y" triggers** — action-oriented, not descriptive
+ * 4. **When NOT to use** — prevents over-calling
+ * 5. **Concise** — ~200 tokens. Every word earns its place in context window
+ * 6. **Concrete examples** — inline tool call syntax for few-shot priming
  *
  * @module system-prompt
+ * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering
+ * @see https://platform.openai.com/docs/guides/prompt-engineering
  */
 
-/**
- * Generate the Knapsack usage guidance block for system prompt injection.
- *
- * Includes:
- * - When to use each tool (proactive triggers)
- * - Compression awareness (look for 📦 footers)
- * - Memory type selection guide (decision vs gotcha vs preference)
- *
- * @returns System prompt appendix string
- */
 export function knapsackPromptGuidance(): string {
-	return `<!-- KNAPSACK_GUIDANCE_START -->
-## 🎒 Knapsack — Memory & Compression (ACTIVE)
+	return `<knapsack_guidance>
+You have Knapsack — persistent memory and output compression. Your large tool outputs are compressed automatically. Use the tools below proactively.
 
-You have Knapsack tools available. Use them proactively — not only when asked.
+<must>
+- BEFORE starting any significant task: knapsack_search("keyword1 keyword2")
+- AFTER making a decision or discovering a pitfall: knapsack_save(content, type="decision|gotcha")
+- AFTER user says "remember this" or states a preference: knapsack_save with type="preference"
+- WHEN a compressed output lacks detail: knapsack_retrieve(hash)
+</must>
 
-### Before starting any task
-- Call **knapsack_search("topic")** to recall relevant decisions, gotchas, or conventions
-- Call **knapsack_obsidian("query")** if the task involves concepts you might have notes on
+<memory_types>
+decision   — architectural choices made
+gotcha     — bugs, pitfalls, things that fail
+fact       — objective info (file locations, env vars, runtime facts)
+convention — team/project standards
+preference — user preferences ("use uv, not pip")
+command    — useful commands
+constraint — hard rules that must not be broken
+hypothesis — working theory to validate later
+</memory_types>
 
-### After important events
-- **knapsack_save(content, type)** — persist decisions, discoveries, preferences:
-  - type="decision" — architectural choices, tradeoffs made
-  - type="gotcha" — pitfalls, bugs, things that don't work
-  - type="fact" — objective information (file locations, API keys, runtime facts)
-  - type="convention" — team/project standards
-  - type="preference" — user preferences ("use uv, not pip")
-  - type="command" — useful commands and how to run them
-  - type="constraint" — hard rules that must be respected
-  - type="hypothesis" — working theories to validate
-- Importance: 0.8+ for critical gotchas/constraints, 0.5 for facts, 0.3 for preferences
+<may>
+- knapsack_obsidian("query") — search your Obsidian knowledge base
+- knapsack_stats — check token savings this session
+- knapsack_forget(id) — delete outdated memories
+</may>
 
-### Compression is automatic
-- Large bash/grep/find outputs are compressed transparently
-- Look for "📦" footers showing token savings
-- If compressed output lacks detail, call **knapsack_retrieve(hash)** for the full original
-
-### Check occasionally
-- **knapsack_stats** — see how many tokens you've saved this session
-
-### Memory management
-- **knapsack_forget(id)** — delete outdated or incorrect memories
-- Memories persist across sessions and survive compaction
-<!-- KNAPSACK_GUIDANCE_END -->`;
+<skip>
+- Don't save trivial facts (line counts, timestamps, obvious file paths)
+- Don't search memory for ultra-specific one-off queries
+- Compression is automatic — you don't need to trigger it
+</skip>
+</knapsack_guidance>`;
 }
