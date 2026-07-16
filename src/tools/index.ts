@@ -67,7 +67,11 @@ export function registerTools(
 				};
 			}
 
-			const original = retrieve(store.vaultPath, params.hash);
+			const original = retrieve(
+				store.dbPath.replace("/memory.db", ""),
+				store.vaultPath,
+				params.hash,
+			);
 			if (!original) {
 				return {
 					content: [
@@ -134,7 +138,14 @@ export function registerTools(
 				store.projectRoot ?? undefined,
 			);
 
-			if (candidates.length === 0) {
+			// Also search Obsidian vault if available
+			let vaultResults: string[] = [];
+			if (store.vaultPath) {
+				const { searchVault } = await import("../bridge/obsidian");
+				vaultResults = searchVault(store.vaultPath, params.query, 5) ?? [];
+			}
+
+			if (candidates.length === 0 && vaultResults.length === 0) {
 				return {
 					content: [{ type: "text" as const, text: `No memories found for "${params.query}".` }],
 					details: { query: params.query, results: 0 },
@@ -162,14 +173,22 @@ export function registerTools(
 					`${emoji[r.entry.type] ?? "📌"} **[${r.entry.type}]** ${r.entry.content} \`(score:${r.score})\``,
 			);
 
+			if (vaultResults.length > 0) {
+				lines.push("", "**Obsidian vault:**", ...vaultResults.slice(0, 5));
+			}
+
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: `Found ${ranked.length} memories (BM25-ranked):\n\n${lines.join("\n")}`,
+						text: `Found ${ranked.length} memories + ${vaultResults.length} vault notes:\n\n${lines.join("\n")}`,
 					},
 				],
-				details: { query: params.query, results: ranked.length },
+				details: {
+					query: params.query,
+					memoryResults: ranked.length,
+					vaultResults: vaultResults.length,
+				},
 			};
 		},
 	});

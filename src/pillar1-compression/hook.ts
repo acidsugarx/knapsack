@@ -61,14 +61,13 @@ export async function compressionHook(
 	const result = registry.compress(contentText, toolName);
 	if (!result) return;
 
-	// Cache original in Obsidian vault (CCR)
-	const obsidianNote = cache(store.vaultPath, result.hash, contentText, {
-		toolName,
-		originalTokens: result.originalTokens,
-		compressedTokens: result.compressedTokens,
-		savingsPercent: result.savingsPercent,
-		sessionId: store.sessionId,
-	});
+	// Cache original locally (CCR) — ~/.knapsack/cache, not vault
+	const ccrHash = cache(
+		store.dbPath.replace("/memory.db", ""),
+		store.vaultPath,
+		result.hash,
+		contentText,
+	);
 
 	// Record in stats database
 	db.recordCompression({
@@ -78,7 +77,7 @@ export async function compressionHook(
 		compressedTokens: result.compressedTokens,
 		savingsPercent: result.savingsPercent,
 		strategy: result.strategy,
-		obsidianNote: obsidianNote ?? undefined,
+		obsidianNote: ccrHash ?? undefined,
 		sessionId: store.sessionId ?? undefined,
 	});
 
@@ -86,13 +85,11 @@ export async function compressionHook(
 	const { checkDrift } = await import("../pillar2-memory/drift");
 	const driftDetections = checkDrift(db, contentText, store.projectRoot ?? undefined);
 
-	// Build retrieval hint with vault link if available
-	const vaultHint = obsidianNote ? ` · vault: [[${obsidianNote}]]` : "";
 	const driftHint =
 		driftDetections.length > 0
 			? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
 			: "";
-	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${vaultHint}${driftHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
+	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${driftHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
 
 	return {
 		content: [

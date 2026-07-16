@@ -131,6 +131,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		if (db) {
+			db.pruneMemories();
 			db.close();
 			db = null;
 		}

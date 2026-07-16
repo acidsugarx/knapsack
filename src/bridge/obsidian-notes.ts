@@ -64,10 +64,14 @@ export function writeNote(vaultPath: string | null, title: string, content: stri
 	}
 
 	if (existsSync(notePath)) {
-		// Append with timestamp
+		// Idempotency: skip if content already present in note
+		const existing = readFileSync(notePath, "utf-8");
+		if (existing.includes(content.trim())) {
+			return filename;
+		}
 		const now = new Date().toISOString().slice(0, 19).replace("T", " ");
 		const append = `\n\n## Update ${now}\n\n${content}`;
-		writeFileSync(notePath, readFileSync(notePath, "utf-8") + append, "utf-8");
+		writeFileSync(notePath, existing + append, "utf-8");
 	} else {
 		// Create new note
 		writeFileSync(notePath, content, "utf-8");

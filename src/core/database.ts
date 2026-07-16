@@ -237,6 +237,8 @@ export interface KnapsackDB {
 
 	getAllMemories(project?: string): MemoryEntry[];
 
+	pruneMemories(maxAge?: number, minImportance?: number): number;
+
 	close(): void;
 }
 
@@ -423,6 +425,17 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				? execRows(db, "SELECT * FROM memory WHERE project IS NULL OR project = ?", [project])
 				: execRows(db, "SELECT * FROM memory");
 			return rows.map(rowToMemory);
+		},
+
+		pruneMemories(maxAge = 30 * 24 * 60 * 60 * 1000, minImportance = 0.3) {
+			const cutoff = Date.now() - maxAge;
+			const rows = execRows(
+				db,
+				"DELETE FROM memory WHERE recency < ? AND importance < ? AND access_count <= 1",
+				[cutoff, minImportance],
+			);
+			save();
+			return rows.length;
 		},
 
 		recordCompression(input) {
