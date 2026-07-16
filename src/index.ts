@@ -24,6 +24,7 @@ import { compressionHook } from "./pillar1-compression/hook";
 import { compactionHook } from "./pillar2-memory/compaction";
 import { memoryInjectHook } from "./pillar2-memory/inject";
 import { observeHook } from "./pillar2-memory/observe";
+import { knapsackPromptGuidance } from "./system-prompt";
 import { registerTools } from "./tools/index";
 
 /**
@@ -96,7 +97,17 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, _ctx) => {
 		if (!db || !store) return;
-		return memoryInjectHook(event, db, store);
+
+		// Always inject Knapsack usage guidance into system prompt
+		let systemPrompt = `${event.systemPrompt}\n\n${knapsackPromptGuidance()}`;
+
+		// Inject relevant memories if available
+		const memoryBlock = memoryInjectHook(event, db, store);
+		if (memoryBlock) {
+			systemPrompt += `\n\n${memoryBlock}`;
+		}
+
+		return { systemPrompt };
 	});
 
 	pi.on("turn_end", async (event, _ctx) => {

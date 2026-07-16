@@ -40,10 +40,10 @@ const MAX_INJECTED_MEMORIES = 5;
  * @returns Modified system prompt, or undefined if no memories to inject
  */
 export function memoryInjectHook(
-	event: BeforeAgentStartEvent,
+	_event: BeforeAgentStartEvent,
 	db: KnapsackDB,
 	store: KnapsackStore,
-): { systemPrompt: string } | undefined {
+): string | undefined {
 	// Get recent project memories
 	const memories = db.getRecentMemory(MAX_INJECTED_MEMORIES * 2, store.projectRoot ?? undefined);
 
@@ -55,11 +55,7 @@ export function memoryInjectHook(
 	if (relevant.length === 0) return;
 
 	// Format as a compact section
-	const memoryBlock = formatMemoryBlock(relevant);
-
-	return {
-		systemPrompt: `${event.systemPrompt}\n\n${memoryBlock}`,
-	};
+	return formatMemoryBlock(relevant);
 }
 
 /**
