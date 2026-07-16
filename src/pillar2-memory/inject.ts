@@ -22,8 +22,8 @@
  */
 
 import type { BeforeAgentStartEvent } from "@earendil-works/pi-coding-agent";
-import type { KnapsackDB } from "../../core/database";
-import type { KnapsackStore, MemoryEntry } from "../../core/types";
+import type { KnapsackDB } from "../core/database";
+import type { KnapsackStore, MemoryEntry } from "../core/types";
 
 /**
  * Maximum number of memory entries to inject.

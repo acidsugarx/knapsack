@@ -27,8 +27,8 @@
  */
 
 import type { SessionBeforeCompactEvent } from "@earendil-works/pi-coding-agent";
-import type { KnapsackDB } from "../../core/database";
-import type { KnapsackStore } from "../../core/types";
+import type { KnapsackDB } from "../core/database";
+import type { KnapsackStore } from "../core/types";
 
 /**
  * Handle the session_before_compact event — persist session state to memory.

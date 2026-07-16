@@ -20,15 +20,15 @@
  */
 
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import type { KnapsackDB } from "../../core/database";
-import { estimateTokens } from "../../core/tokens";
-import type { KnapsackStore } from "../../core/types";
-import { cache } from "../ccr";
-import { detectContentType } from "../detect";
-import { compressBash } from "../strategies/bash";
-import { compressFind } from "../strategies/find";
-import { compressGrep } from "../strategies/grep";
-import { getStrategy, shouldCompress } from "../thresholds";
+import type { KnapsackDB } from "../core/database";
+import { estimateTokens } from "../core/tokens";
+import type { KnapsackStore } from "../core/types";
+import { cache } from "./ccr";
+import { detectContentType } from "./detect";
+import { compressBash } from "./strategies/bash";
+import { compressFind } from "./strategies/find";
+import { compressGrep } from "./strategies/grep";
+import { getStrategy, shouldCompress } from "./thresholds";
 
 /**
  * Number of characters to extract from tool output for token estimation.
