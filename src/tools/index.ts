@@ -96,10 +96,10 @@ export function registerTools(
 		name: "knapsack_search",
 		label: "Knapsack Search",
 		description:
-			"Search Knapsack's persistent memory using FTS5 keyword search. " +
-			"Matches by exact keywords in saved facts, decisions, gotchas, conventions, and preferences. " +
-			"Use short, specific terms for best results. Semantic/embedding search is planned for v0.2.",
-		promptSnippet: "Keyword-search persistent memory (FTS5 — use short specific terms)",
+			"Search Knapsack's persistent memory using BM25 keyword scoring (token overlap + IDF). " +
+			"Matches by shared terms - 'postgres pool' finds entries about Postgres connection pooling. " +
+			"Results ranked by relevance × importance × recency.",
+		promptSnippet: "Search persistent memory (BM25 — use natural keywords)",
 		promptGuidelines: [
 			"Call knapsack_search at the start of a new task to check for relevant memories. " +
 				"Search for the topic, technology, file name, or error message you're working with.",
@@ -118,26 +118,28 @@ export function registerTools(
 		}),
 		async execute(_toolCallId, params): Promise<any> {
 			const db = getDB();
-			if (!db) {
+			const store = getStore();
+			if (!db || !store) {
 				return {
 					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
 					details: {},
 				};
 			}
 
-			const results = db.searchMemory(params.query, params.limit ?? 10, params.type);
+			// Get candidates via FTS5/LIKE
+			const candidates = db.searchMemory(params.query, 20, params.type);
 
-			if (results.length === 0) {
+			if (candidates.length === 0) {
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `No memories found for "${params.query}".`,
-						},
-					],
+					content: [{ type: "text" as const, text: `No memories found for "${params.query}".` }],
 					details: { query: params.query, results: 0 },
 				};
 			}
+
+			// BM25 score and rank
+			const { scoreAndRank } = await import("../pillar2-memory/scoring");
+			const allEntries = db.getAllMemories(store.projectRoot ?? undefined);
+			const ranked = scoreAndRank(params.query, candidates, allEntries, params.limit ?? 10);
 
 			const emoji: Record<string, string> = {
 				decision: "🔒",
@@ -150,18 +152,19 @@ export function registerTools(
 				hypothesis: "🧪",
 			};
 
-			const lines = results.map(
-				(r) => `${emoji[r.type] ?? "📌"} **[${r.type}]** ${r.content} \`(${r.id})\``,
+			const lines = ranked.map(
+				(r) =>
+					`${emoji[r.entry.type] ?? "📌"} **[${r.entry.type}]** ${r.entry.content} \`(score:${r.score})\``,
 			);
 
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: `Found ${results.length} memories:\n\n${lines.join("\n")}`,
+						text: `Found ${ranked.length} memories (BM25-ranked):\n\n${lines.join("\n")}`,
 					},
 				],
-				details: { query: params.query, results: results.length },
+				details: { query: params.query, results: ranked.length },
 			};
 		},
 	});

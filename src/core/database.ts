@@ -230,6 +230,8 @@ export interface KnapsackDB {
 	setMeta(key: string, value: string): void;
 	getMeta(key: string): string | undefined;
 
+	getAllMemories(project?: string): MemoryEntry[];
+
 	close(): void;
 }
 
@@ -400,6 +402,13 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
          LIMIT ?`,
 				[project ?? null, limit],
 			);
+			return rows.map(rowToMemory);
+		},
+
+		getAllMemories(project) {
+			const rows = project
+				? execRows(db, "SELECT * FROM memory WHERE project IS NULL OR project = ?", [project])
+				: execRows(db, "SELECT * FROM memory");
 			return rows.map(rowToMemory);
 		},
 
