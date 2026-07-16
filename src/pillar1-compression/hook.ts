@@ -3,13 +3,19 @@
  *
  * ## Flow
  *
- * 1. Check if this tool type has a compression strategy
- * 2. Estimate token count of the output
- * 3. Skip if below threshold (small outputs don't benefit from compression)
- * 4. Apply the appropriate compression strategy (bash, grep, find)
- * 5. Cache the original in Obsidian vault (CCR)
- * 6. Record the compression in the stats database
+ * 1. Extract text content from the tool result
+ * 2. Check if output exceeds token threshold
+ * 3. Dispatch to strategy registry (auto-detect by content → fallback by tool name)
+ * 4. Apply compression strategy
+ * 5. Cache original in Obsidian vault (CCR)
+ * 6. Record compression stats
  * 7. Return modified content: compressed body + retrieval hint
+ *
+ * ## Plugin architecture
+ *
+ * Strategies are registered in a {@link StrategyRegistry}. The registry
+ * handles all routing — content detection and tool-name mapping.
+ * Third-party packages can add custom strategies via `registry.register()`.
  *
  * ## Idempotency
  *
@@ -21,39 +27,29 @@
 
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
-import { estimateTokens } from "../core/tokens";
 import type { KnapsackStore } from "../core/types";
 import { cache } from "./ccr";
-import { detectContentType } from "./detect";
-import { compressBash } from "./strategies/bash";
-import { compressFind } from "./strategies/find";
-import { compressGrep } from "./strategies/grep";
-import { getStrategy, shouldCompress } from "./thresholds";
+import type { StrategyRegistry } from "./plugin";
 
 /**
- * Number of characters to extract from tool output for token estimation.
- * Sampling the first N chars is faster than processing the entire output
- * and gives a sufficiently accurate estimate for threshold decisions.
- */
-const ESTIMATE_SAMPLE_SIZE = 10000;
-
-/**
- * Dispatch compression based on tool type, cache the original in Obsidian,
- * and return the compressed output to the model.
+ * Process a tool result event through the compression pipeline.
  *
- * Called from `tool_result` hook in the main extension.
+ * Called from the `tool_result` hook in the main extension.
+ * Uses the strategy registry for routing — no hardcoded switch statement.
  *
  * @param event - The tool_result event from Pi
- * @param _ctx - Extension context (unused currently, reserved for future UI integration)
+ * @param _ctx - Extension context (reserved for future UI integration)
  * @param db - Knapsack database handle
- * @param store - Knapsack runtime store (vault path, session ID, etc.)
- * @returns Modified tool result with compressed content, or undefined to leave unchanged
+ * @param store - Knapsack runtime store
+ * @param registry - Strategy registry (created once at extension load)
+ * @returns Modified tool result or undefined
  */
 export async function compressionHook(
 	event: ToolResultEvent,
 	_ctx: ExtensionContext,
 	db: KnapsackDB,
 	store: KnapsackStore,
+	registry: StrategyRegistry,
 ): Promise<{ content: Array<{ type: "text"; text: string }> } | undefined> {
 	const { toolName } = event;
 
@@ -61,37 +57,11 @@ export async function compressionHook(
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
 
-	// 1. Try auto-detection by output format (works with ANY tool)
-	// 2. Fall back to static tool→strategy mapping (for explicit overrides)
-	const strategy = detectContentType(contentText) ?? getStrategy(toolName);
-	if (!strategy) return;
+	// Compress via registry (auto-routing by content, fallback by tool name)
+	const result = registry.compress(contentText, toolName);
+	if (!result) return;
 
-	// Estimate tokens from a sample to avoid processing huge outputs unnecessarily
-	const sample = contentText.slice(0, ESTIMATE_SAMPLE_SIZE);
-	const estimatedTokens = estimateTokens(sample);
-
-	if (!shouldCompress(toolName, estimatedTokens)) return;
-
-	// Apply compression strategy
-	let result;
-	switch (strategy) {
-		case "bash":
-			result = compressBash(contentText);
-			break;
-		case "grep":
-			result = compressGrep(contentText);
-			break;
-		case "find":
-			result = compressFind(contentText);
-			break;
-		default:
-			return;
-	}
-
-	// If compression didn't actually save tokens, skip
-	if (result.savingsPercent <= 0) return;
-
-	// Cache original in Obsidian
+	// Cache original in Obsidian vault (CCR)
 	const obsidianNote = cache(store.vaultPath, result.hash, contentText, {
 		toolName,
 		originalTokens: result.originalTokens,
@@ -100,7 +70,7 @@ export async function compressionHook(
 		sessionId: store.sessionId,
 	});
 
-	// Record in stats DB
+	// Record in stats database
 	db.recordCompression({
 		toolName,
 		originalHash: result.hash,
@@ -112,7 +82,7 @@ export async function compressionHook(
 		sessionId: store.sessionId ?? undefined,
 	});
 
-	// Build the retrieval hint
+	// Build retrieval hint with vault link if available
 	const vaultHint = obsidianNote ? ` · vault: [[${obsidianNote}]]` : "";
 	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${vaultHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
 

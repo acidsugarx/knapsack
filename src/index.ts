@@ -20,6 +20,7 @@ import type { KnapsackDB } from "./core/database";
 import { createDB } from "./core/database";
 import { getProjectRoot } from "./core/project";
 import type { KnapsackStore } from "./core/types";
+import { createDefaultRegistry } from "./pillar1-compression/default-registry";
 import { compressionHook } from "./pillar1-compression/hook";
 import { compactionHook } from "./pillar2-memory/compaction";
 import { memoryInjectHook } from "./pillar2-memory/inject";
@@ -58,6 +59,12 @@ export default async function knapsack(pi: ExtensionAPI) {
 	 */
 	let db: KnapsackDB | null = null;
 
+	/**
+	 * Compression strategy registry — created once at extension load.
+	 * Third-party strategies can be added before session_start.
+	 */
+	const compressionRegistry = createDefaultRegistry();
+
 	// ── Lifecycle: startup ──────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -90,7 +97,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (!db || !store) return;
-		await compressionHook(event, ctx, db, store);
+		await compressionHook(event, ctx, db, store, compressionRegistry);
 	});
 
 	// ── Pillar 2: Memory ───────────────────────────────────
