@@ -9,11 +9,13 @@ import { execSync } from "node:child_process";
  */
 export function getProjectRoot(cwd: string): string | null {
 	try {
-		return execSync("git rev-parse --show-toplevel", {
-			cwd,
-			encoding: "utf-8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim() || null;
+		return (
+			execSync("git rev-parse --show-toplevel", {
+				cwd,
+				encoding: "utf-8",
+				stdio: ["ignore", "pipe", "ignore"],
+			}).trim() || null
+		);
 	} catch {
 		return null;
 	}

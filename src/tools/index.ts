@@ -15,12 +15,12 @@
  * @module tools
  */
 
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { searchVault } from "../bridge/obsidian";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 import { retrieve } from "../pillar1-compression/ccr";
-import { searchVault } from "../bridge/obsidian";
 
 /**
  * Register all Knapsack tools with Pi.
@@ -52,8 +52,7 @@ export function registerTools(
 		],
 		parameters: Type.Object({
 			hash: Type.String({
-				description:
-					"Content hash from the compression footer (e.g., a1b2c3d4e5f6)",
+				description: "Content hash from the compression footer (e.g., a1b2c3d4e5f6)",
 			}),
 		}),
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,7 +60,9 @@ export function registerTools(
 			const store = getStore();
 			if (!store) {
 				return {
-					content: [{ type: "text" as const, text: "Knapsack is not initialized. Start a session first." }],
+					content: [
+						{ type: "text" as const, text: "Knapsack is not initialized. Start a session first." },
+					],
 					details: {},
 				};
 			}
@@ -104,10 +105,10 @@ export function registerTools(
 				"Search for the topic, technology, file name, or error message you're working with.",
 		],
 		parameters: Type.Object({
-			query: Type.String({ description: "What to search for (topic, technology, error message, etc.)" }),
-			limit: Type.Optional(
-				Type.Number({ default: 10, description: "Max results (default: 10)" }),
-			),
+			query: Type.String({
+				description: "What to search for (topic, technology, error message, etc.)",
+			}),
+			limit: Type.Optional(Type.Number({ default: 10, description: "Max results (default: 10)" })),
 			type: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
@@ -150,8 +151,7 @@ export function registerTools(
 			};
 
 			const lines = results.map(
-				(r) =>
-					`${emoji[r.type] ?? "📌"} **[${r.type}]** ${r.content} \`(${r.id})\``,
+				(r) => `${emoji[r.type] ?? "📌"} **[${r.type}]** ${r.content} \`(${r.id})\``,
 			);
 
 			return {
@@ -197,7 +197,8 @@ export function registerTools(
 			scope: Type.Optional(
 				Type.String({
 					default: "project",
-					description: "Scope: 'project' (this project only), 'global' (all projects), or 'session'",
+					description:
+						"Scope: 'project' (this project only), 'global' (all projects), or 'session'",
 				}),
 			),
 		}),
@@ -212,8 +213,14 @@ export function registerTools(
 			}
 
 			const validTypes = [
-				"decision", "fact", "gotcha", "convention",
-				"preference", "command", "constraint", "hypothesis",
+				"decision",
+				"fact",
+				"gotcha",
+				"convention",
+				"preference",
+				"command",
+				"constraint",
+				"hypothesis",
 			];
 
 			if (!validTypes.includes(params.type)) {
@@ -230,7 +237,15 @@ export function registerTools(
 
 			const entry = db.saveMemory({
 				content: params.content,
-				type: params.type as "decision" | "fact" | "gotcha" | "convention" | "preference" | "command" | "constraint" | "hypothesis",
+				type: params.type as
+					| "decision"
+					| "fact"
+					| "gotcha"
+					| "convention"
+					| "preference"
+					| "command"
+					| "constraint"
+					| "hypothesis",
 				scope: (params.scope as "global" | "project" | "session") ?? "project",
 				importance: params.importance ?? 0.5,
 				project: store.projectRoot ?? undefined,
@@ -343,9 +358,7 @@ export function registerTools(
 		],
 		parameters: Type.Object({
 			query: Type.String({ description: "Search query for Obsidian vault" }),
-			limit: Type.Optional(
-				Type.Number({ default: 20, description: "Max results (default: 20)" }),
-			),
+			limit: Type.Optional(Type.Number({ default: 20, description: "Max results (default: 20)" })),
 		}),
 		async execute(_toolCallId, params): Promise<any> {
 			const store = getStore();

@@ -84,12 +84,8 @@ export const KnapsackRetrieveParams = Type.Object({
 
 export const KnapsackSearchParams = Type.Object({
 	query: Type.String({ description: "Search query for memory" }),
-	limit: Type.Optional(
-		Type.Number({ default: 10, description: "Max results (default: 10)" }),
-	),
-	type: Type.Optional(
-		Type.Array(Type.String(), { description: "Filter by memory type" }),
-	),
+	limit: Type.Optional(Type.Number({ default: 10, description: "Max results (default: 10)" })),
+	type: Type.Optional(Type.Array(Type.String(), { description: "Filter by memory type" })),
 });
 
 export const KnapsackSaveParams = Type.Object({
@@ -120,9 +116,7 @@ export const KnapsackForgetParams = Type.Object({
 
 export const KnapsackGrepParams = Type.Object({
 	query: Type.String({ description: "Search query for Obsidian vault" }),
-	limit: Type.Optional(
-		Type.Number({ default: 10, description: "Max results" }),
-	),
+	limit: Type.Optional(Type.Number({ default: 10, description: "Max results" })),
 });
 
 // ── Knapsack state ─────────────────────────────────────

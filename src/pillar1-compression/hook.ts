@@ -21,13 +21,13 @@
 
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../../core/database";
-import type { KnapsackStore } from "../../core/types";
 import { estimateTokens } from "../../core/tokens";
-import { TOOL_STRATEGY, shouldCompress } from "../thresholds";
+import type { KnapsackStore } from "../../core/types";
 import { cache } from "../ccr";
 import { compressBash } from "../strategies/bash";
-import { compressGrep } from "../strategies/grep";
 import { compressFind } from "../strategies/find";
+import { compressGrep } from "../strategies/grep";
+import { shouldCompress, TOOL_STRATEGY } from "../thresholds";
 
 /**
  * Number of characters to extract from tool output for token estimation.
@@ -88,18 +88,13 @@ export async function compressionHook(
 	if (result.savingsPercent <= 0) return;
 
 	// Cache original in Obsidian
-	const obsidianNote = cache(
-		store.vaultPath,
-		result.hash,
-		contentText,
-		{
-			toolName,
-			originalTokens: result.originalTokens,
-			compressedTokens: result.compressedTokens,
-			savingsPercent: result.savingsPercent,
-			sessionId: store.sessionId,
-		},
-	);
+	const obsidianNote = cache(store.vaultPath, result.hash, contentText, {
+		toolName,
+		originalTokens: result.originalTokens,
+		compressedTokens: result.compressedTokens,
+		savingsPercent: result.savingsPercent,
+		sessionId: store.sessionId,
+	});
 
 	// Record in stats DB
 	db.recordCompression({
@@ -114,9 +109,7 @@ export async function compressionHook(
 	});
 
 	// Build the retrieval hint
-	const vaultHint = obsidianNote
-		? ` · vault: [[${obsidianNote}]]`
-		: "";
+	const vaultHint = obsidianNote ? ` · vault: [[${obsidianNote}]]` : "";
 	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${vaultHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
 
 	return {
@@ -136,9 +129,7 @@ export async function compressionHook(
  * @param content - Tool result content from the event
  * @returns Concatenated text content, or null if no text found
  */
-function extractTextContent(
-	content: unknown,
-): string | null {
+function extractTextContent(content: unknown): string | null {
 	if (typeof content === "string") return content;
 
 	if (Array.isArray(content)) {

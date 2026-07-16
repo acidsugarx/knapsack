@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{ts,js,json,md,yml,yaml}"
+      run: npx biome check --no-errors-on-unmatched --files-ignore-unknown=true --staged {staged_files}
+    test:
+      glob: "*.ts"
+      run: npx vitest run --passWithNoTests
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}

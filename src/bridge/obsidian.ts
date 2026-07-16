@@ -97,7 +97,11 @@ function findObsidianConfig(): string | null {
 		case "linux":
 			return join(home, ".config", "obsidian", "obsidian.json");
 		case "win32":
-			return join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "obsidian", "obsidian.json");
+			return join(
+				process.env.APPDATA ?? join(home, "AppData", "Roaming"),
+				"obsidian",
+				"obsidian.json",
+			);
 		default:
 			return null;
 	}
@@ -114,11 +118,7 @@ function findObsidianConfig(): string | null {
  * @param limit - Maximum number of results to return
  * @returns Array of match strings in "file:line:content" format, or null if vaultPath is unavailable
  */
-export function searchVault(
-	vaultPath: string | null,
-	query: string,
-	limit = 20,
-): string[] | null {
+export function searchVault(vaultPath: string | null, query: string, limit = 20): string[] | null {
 	if (!vaultPath) return null;
 
 	try {

@@ -15,8 +15,8 @@
  * @module find-compression
  */
 
-import { estimateTokens, savingsPercent } from "../../core/tokens";
 import { sha256 } from "../../core/hash";
+import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressionResult } from "../../core/types";
 
 /**

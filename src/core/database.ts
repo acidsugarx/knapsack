@@ -22,17 +22,12 @@
  * @module database
  */
 
-import initSqlJs from "sql.js";
-import type { Database } from "sql.js";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import type { Database } from "sql.js";
+import initSqlJs from "sql.js";
 import { sha256 } from "./hash";
-import type {
-	CompressionEntry,
-	MemoryEntry,
-	MemoryScopeValue,
-	MemoryTypeValue,
-} from "./types";
+import type { CompressionEntry, MemoryEntry, MemoryScopeValue, MemoryTypeValue } from "./types";
 
 /** Lazily initialized SQL.js module — loaded once, reused across sessions */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,12 +170,14 @@ function execRows(db: Database, sql: string, params?: unknown[]): Record<string,
 	}
 }
 
-function execOne(db: Database, sql: string, params?: unknown[]): Record<string, unknown> | undefined {
+function execOne(
+	db: Database,
+	sql: string,
+	params?: unknown[],
+): Record<string, unknown> | undefined {
 	const rows = execRows(db, sql, params);
 	return rows[0];
 }
-
-
 
 // ── Public API ─────────────────────────────────────────
 
@@ -434,7 +431,12 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			);
 
 			if (!row || Number(row.count ?? 0) === 0) {
-				return { count: 0, totalOriginalTokens: 0, totalCompressedTokens: 0, totalSavingsPercent: 0 };
+				return {
+					count: 0,
+					totalOriginalTokens: 0,
+					totalCompressedTokens: 0,
+					totalSavingsPercent: 0,
+				};
 			}
 
 			const totalOriginal = Number(row.total_original ?? 0);
@@ -451,7 +453,10 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		},
 
 		getAllTimeStats() {
-			const comp = execOne(db, "SELECT COUNT(*) as cnt, COALESCE(SUM(original_tokens), 0) as orig, COALESCE(SUM(compressed_tokens), 0) as comp FROM compression");
+			const comp = execOne(
+				db,
+				"SELECT COUNT(*) as cnt, COALESCE(SUM(original_tokens), 0) as orig, COALESCE(SUM(compressed_tokens), 0) as comp FROM compression",
+			);
 			const mem = execOne(db, "SELECT COUNT(*) as cnt FROM memory");
 
 			const compressionCount = Number(comp?.cnt ?? 0);

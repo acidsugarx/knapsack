@@ -11,7 +11,7 @@
  * @module commands
  */
 
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 

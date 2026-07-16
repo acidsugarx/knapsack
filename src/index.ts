@@ -39,19 +39,18 @@
  * @module knapsack
  */
 
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-import { createDB } from "./core/database";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { discoverVault } from "./bridge/obsidian";
+import { registerCommands } from "./commands/index";
 import type { KnapsackDB } from "./core/database";
+import { createDB } from "./core/database";
+import { getProjectRoot } from "./core/project";
 import type { KnapsackStore } from "./core/types";
 import { compressionHook } from "./pillar1-compression/hook";
+import { compactionHook } from "./pillar2-memory/compaction";
 import { memoryInjectHook } from "./pillar2-memory/inject";
 import { observeHook } from "./pillar2-memory/observe";
-import { compactionHook } from "./pillar2-memory/compaction";
 import { registerTools } from "./tools/index";
-import { registerCommands } from "./commands/index";
-import { discoverVault } from "./bridge/obsidian";
-import { getProjectRoot } from "./core/project";
 
 /**
  * Knapsack extension entry point.
@@ -148,6 +147,14 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	// ── Tools & Commands ───────────────────────────────────
 
-	registerTools(pi, () => db, () => store);
-	registerCommands(pi, () => db, () => store);
+	registerTools(
+		pi,
+		() => db,
+		() => store,
+	);
+	registerCommands(
+		pi,
+		() => db,
+		() => store,
+	);
 }

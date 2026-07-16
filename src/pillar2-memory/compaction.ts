@@ -56,9 +56,7 @@ export function compactionHook(
 		`Session compacted (${reason})`,
 		`Messages summarized: ${messageCount}`,
 		`Tokens before compaction: ${tokenCount}`,
-		preparation.previousSummary
-			? `Previous summary was carried forward`
-			: null,
+		preparation.previousSummary ? `Previous summary was carried forward` : null,
 	]
 		.filter(Boolean)
 		.join(" · ");

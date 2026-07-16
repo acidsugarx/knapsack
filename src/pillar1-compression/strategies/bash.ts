@@ -1,6 +1,6 @@
-import { estimateTokens, savingsPercent } from "../../core/tokens";
 import { sha256 } from "../../core/hash";
-import type { CompressionResult, CompressedSection } from "../../core/types";
+import { estimateTokens, savingsPercent } from "../../core/tokens";
+import type { CompressedSection, CompressionResult } from "../../core/types";
 
 // ── ANSI escape sequence stripper ──────────────────────
 
@@ -103,9 +103,10 @@ export function compressBash(
 		const suffix = errors.length > maxErrors ? `\n(+${errors.length - maxErrors} more errors)` : "";
 		sections.push({
 			title: "ERRORS",
-			content: deduplicateLines(shown).map((d) =>
-				d.count > 1 ? `${d.line} (×${d.count})` : d.line,
-			).join("\n") + suffix,
+			content:
+				deduplicateLines(shown)
+					.map((d) => (d.count > 1 ? `${d.line} (×${d.count})` : d.line))
+					.join("\n") + suffix,
 		});
 	}
 
@@ -113,15 +114,13 @@ export function compressBash(
 	if (warnings.length > 0) {
 		const deduped = deduplicateLines(warnings);
 		const shown = deduped.slice(0, maxWarnings);
-		const suffix = deduped.length > maxWarnings
-			? `\n(+${deduped.length - maxWarnings} more warning types)`
-			: "";
+		const suffix =
+			deduped.length > maxWarnings ? `\n(+${deduped.length - maxWarnings} more warning types)` : "";
 
 		sections.push({
 			title: "WARNINGS",
-			content: shown.map((d) =>
-				d.count > 1 ? `${d.line} (×${d.count})` : d.line,
-			).join("\n") + suffix,
+			content:
+				shown.map((d) => (d.count > 1 ? `${d.line} (×${d.count})` : d.line)).join("\n") + suffix,
 		});
 	}
 

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compressBash } from "../../src/pillar1-compression/strategies/bash.js";
-import { compressGrep } from "../../src/pillar1-compression/strategies/grep.js";
-import { compressFind } from "../../src/pillar1-compression/strategies/find.js";
-import { estimateTokens } from "../../src/core/tokens.js";
 import { sha256 } from "../../src/core/hash.js";
+import { estimateTokens } from "../../src/core/tokens.js";
+import { compressBash } from "../../src/pillar1-compression/strategies/bash.js";
+import { compressFind } from "../../src/pillar1-compression/strategies/find.js";
+import { compressGrep } from "../../src/pillar1-compression/strategies/grep.js";
 
 describe("compressBash", () => {
 	it("collapses build output keeping errors", () => {

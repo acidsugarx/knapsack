@@ -1,5 +1,5 @@
-import { estimateTokens, savingsPercent } from "../../core/tokens";
 import { sha256 } from "../../core/hash";
+import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressionResult } from "../../core/types";
 
 /**
@@ -57,7 +57,7 @@ export function compressGrep(output: string): CompressionResult {
 		.slice(0, maxDirs);
 
 	const parts: string[] = [];
-	let shownCount = 0;
+	let _shownCount = 0;
 
 	for (const [dir, files] of sortedDirs) {
 		const dirTotal = Array.from(files.values()).reduce((s, v) => s + v.length, 0);
@@ -71,7 +71,7 @@ export function compressGrep(output: string): CompressionResult {
 			const previews = fileMatches.slice(0, maxLinesPerFile);
 			parts.push(`  ${shortName(file)}  ${fileMatches.length} matches`);
 			for (const m of previews) {
-				const content = m.content.length > 80 ? m.content.slice(0, 77) + "..." : m.content;
+				const content = m.content.length > 80 ? `${m.content.slice(0, 77)}...` : m.content;
 				parts.push(`    L${m.line}: ${content}`);
 			}
 			if (fileMatches.length > maxLinesPerFile) {
@@ -80,13 +80,12 @@ export function compressGrep(output: string): CompressionResult {
 		}
 
 		const remainingFiles = files.size - sortedFiles.length;
-		const remainingMatches = dirTotal -
-			sortedFiles.reduce((s, [, v]) => s + v.length, 0);
+		const remainingMatches = dirTotal - sortedFiles.reduce((s, [, v]) => s + v.length, 0);
 		if (remainingFiles > 0) {
 			parts.push(`  (+${remainingFiles} more files, ${remainingMatches} matches)`);
 		}
 
-		shownCount += dirTotal;
+		_shownCount += dirTotal;
 	}
 
 	const uniqueFiles = new Set(matches.map((m) => m.file)).size;
