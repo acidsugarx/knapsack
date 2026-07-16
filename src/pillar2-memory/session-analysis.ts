@@ -59,23 +59,29 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
 			const entry = JSON.parse(line);
 			if (!isToolResultEntry(entry)) continue;
 
+			// Pi JSONL: tool result is nested under entry.message
+			const msg = (entry.message ?? entry) as Record<string, unknown>;
+
 			analysis.totalToolCalls++;
 
-			const toolName = entry.toolName ?? "unknown";
+			const toolName = String(msg.toolName ?? "unknown");
 
 			// Track command patterns
-			if (toolName === "bash" && entry.input?.command) {
-				const cmd = (entry.input.command as string).split(/\s+/)[0] ?? "unknown";
-				commandCounts[cmd] = (commandCounts[cmd] ?? 0) + 1;
+			if (toolName === "bash") {
+				const input = msg.input as Record<string, unknown> | undefined;
+				if (input?.command) {
+					const cmd = String(input.command).split(/\s+/)[0] ?? "unknown";
+					commandCounts[cmd] = (commandCounts[cmd] ?? 0) + 1;
+				}
 			}
 
 			// Check for errors
-			if (entry.isError || entry.details?.exitCode !== 0) {
-				const errorMsg = extractErrorText(entry.content);
+			if (msg.isError) {
+				const errorMsg = extractErrorText(msg.content);
 				analysis.failedTools.push({
 					tool: toolName,
 					error: errorMsg.slice(0, 200),
-					timestamp: entry.timestamp ?? "",
+					timestamp: String(msg.timestamp ?? entry.timestamp ?? ""),
 				});
 				toolErrors[toolName] = (toolErrors[toolName] ?? 0) + 1;
 			}
@@ -177,11 +183,11 @@ export function formatAnalysis(analysis: SessionAnalysis): string {
 function isToolResultEntry(entry: unknown): boolean {
 	if (typeof entry !== "object" || entry === null) return false;
 	const e = entry as Record<string, unknown>;
-	return (
-		e.role === "toolResult" ||
-		e.type === "toolResult" ||
-		(e.toolName !== undefined && e.content !== undefined)
-	);
+	// Pi JSONL: top-level type="message", actual tool result nested in message field
+	const msg = e.message as Record<string, unknown> | undefined;
+	if (msg && msg.role === "toolResult") return true;
+	// Direct format (not nested)
+	return e.role === "toolResult" || (e.toolName !== undefined && e.content !== undefined);
 }
 
 function extractErrorText(content: unknown): string {
