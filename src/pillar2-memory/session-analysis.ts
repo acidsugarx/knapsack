@@ -13,7 +13,6 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 

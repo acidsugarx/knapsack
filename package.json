@@ -10,6 +10,7 @@
 	},
 	"files": [
 		"src/",
+		"skills/",
 		"README.md",
 		"LICENSE",
 		"CHANGELOG.md"
@@ -29,7 +30,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit",
-		"prepare": "lefthook install",
+		"prepare": "lefthook install || true",
 		"prepublishOnly": "npm run check && npm run test"
 	},
 	"keywords": [
