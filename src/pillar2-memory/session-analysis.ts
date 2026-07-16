@@ -178,7 +178,11 @@ export function formatAnalysis(analysis: SessionAnalysis): string {
 function isToolResultEntry(entry: unknown): boolean {
 	if (typeof entry !== "object" || entry === null) return false;
 	const e = entry as Record<string, unknown>;
-	return e.type === "toolResult" || (e.toolName !== undefined && e.content !== undefined);
+	return (
+		e.role === "toolResult" ||
+		e.type === "toolResult" ||
+		(e.toolName !== undefined && e.content !== undefined)
+	);
 }
 
 function extractErrorText(content: unknown): string {

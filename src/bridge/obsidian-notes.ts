@@ -55,8 +55,13 @@ export function writeNote(vaultPath: string | null, title: string, content: stri
 
 	mkdirSync(vaultPath, { recursive: true });
 
-	const filename = title.endsWith(".md") ? title : `${title}.md`;
+	const safeTitle = sanitizeTitle(title);
+	const filename = safeTitle.endsWith(".md") ? safeTitle : `${safeTitle}.md`;
 	const notePath = join(vaultPath, filename);
+
+	if (!isPathSafe(vaultPath, notePath)) {
+		return null; // Path traversal blocked
+	}
 
 	if (existsSync(notePath)) {
 		// Append with timestamp

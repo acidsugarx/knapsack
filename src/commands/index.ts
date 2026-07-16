@@ -11,6 +11,8 @@
  * @module commands
  */
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
@@ -117,8 +119,6 @@ export function registerCommands(
  * Find the session JSONL file by session ID.
  */
 function findSessionFile(sessionDir: string, sessionId: string): string | null {
-	const { readdirSync } = require("node:fs");
-	const { join } = require("node:path");
 	try {
 		for (const dir of readdirSync(sessionDir, { recursive: true, withFileTypes: true })) {
 			if (dir.name.includes(sessionId)) {

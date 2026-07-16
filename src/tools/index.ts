@@ -388,12 +388,15 @@ export function registerTools(
 				// Count total markdown files in vault for context
 				let vaultFileCount = 0;
 				try {
-					const { execSync } = await import("node:child_process");
-					const count = execSync(`find "${store.vaultPath}" -name "*.md" 2>/dev/null | wc -l`, {
+					const { execFileSync } = await import("node:child_process");
+					const count = execFileSync("find", [store.vaultPath, "-name", "*.md"], {
 						encoding: "utf-8",
 						timeout: 3000,
-					}).trim();
-					vaultFileCount = parseInt(count, 10) || 0;
+					})
+						.trim()
+						.split("\n")
+						.filter(Boolean).length;
+					vaultFileCount = count;
 				} catch {
 					// Can't count — skip
 				}
