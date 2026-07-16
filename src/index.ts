@@ -1,42 +1,16 @@
 /**
- * Knapsack — token reduction & persistent memory for Pi coding agent.
+ * Knapsack — Pi extension entry point.
  *
- * ## Architecture
+ * Wires up compression hooks, memory hooks, custom tools, and slash commands.
+ * This is the file pi loads via jiti when the extension is activated.
  *
- * Knapsack has two pillars:
+ * ## Hook order matters
  *
- * **Pillar 1: Token Reduction** — transparently compresses large tool outputs
- * (bash, grep, read, find, JSON) before they enter the LLM context window.
- * Originals are cached in Obsidian vault via Compress-Cache-Retrieve (CCR).
- * Model gets the signal, not the noise. Same decisions, 50–95% fewer tokens.
- *
- * **Pillar 2: Persistent Memory** — SQLite-backed knowledge store that
- * survives sessions and compaction. The model saves decisions, facts,
- * gotchas, conventions, and preferences. Relevant memories are injected
- * before each agent turn. Compaction events flush session summaries to
- * memory so context never fully disappears.
- *
- * ## Integration Points
- *
- * Knapsack hooks into Pi's extension API at these lifecycle points:
- *
- * | Hook                    | What happens                                    |
- * |-------------------------|-------------------------------------------------|
- * | `session_start`          | Open DB, discover Obsidian vault, inject skill  |
- * | `before_agent_start`     | Inject relevant memories into system prompt     |
- * | `tool_result`            | Compress large outputs (bash/grep/read/find)    |
- * | `turn_end`               | Observe learnings (failed tools, corrections)   |
- * | `session_before_compact` | Flush session memory before context reset       |
- * | `session_shutdown`       | Close DB, cleanup                               |
- *
- * ## Idempotency
- *
- * Every operation is safe to retry:
- * - Memory: UPSERT by `content_hash` (SHA256 of content + type)
- * - Compression: skip if `original_hash` already in DB
- * - Obsidian writes: check file existence before creating
+ * Hooks are registered in the order pi fires them during a session lifecycle:
+ * session_start → tool_result/turn_end → before_agent_start → session_before_compact → session_shutdown
  *
  * @module knapsack
+ * @packageDocumentation
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
