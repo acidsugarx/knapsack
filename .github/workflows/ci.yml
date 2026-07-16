@@ -33,8 +33,15 @@ jobs:
     name: Tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node: [20, 22]
+        include:
+          - node: 20
+          - node: 22
+          - node: 23
+          - node: 26
+            experimental: true
+    continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
