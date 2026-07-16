@@ -24,6 +24,7 @@ import type { KnapsackDB } from "../../core/database";
 import { estimateTokens } from "../../core/tokens";
 import type { KnapsackStore } from "../../core/types";
 import { cache } from "../ccr";
+import { detectContentType } from "../detect";
 import { compressBash } from "../strategies/bash";
 import { compressFind } from "../strategies/find";
 import { compressGrep } from "../strategies/grep";
@@ -55,12 +56,15 @@ export async function compressionHook(
 	store: KnapsackStore,
 ): Promise<{ content: Array<{ type: "text"; text: string }> } | undefined> {
 	const { toolName } = event;
-	const strategy = getStrategy(toolName);
-	if (!strategy) return;
 
 	// Extract text content from the event
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
+
+	// 1. Try auto-detection by output format (works with ANY tool)
+	// 2. Fall back to static tool→strategy mapping (for explicit overrides)
+	const strategy = detectContentType(contentText) ?? getStrategy(toolName);
+	if (!strategy) return;
 
 	// Estimate tokens from a sample to avoid processing huge outputs unnecessarily
 	const sample = contentText.slice(0, ESTIMATE_SAMPLE_SIZE);
