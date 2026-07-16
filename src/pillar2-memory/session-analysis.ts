@@ -1,13 +1,19 @@
 /**
- * Session analysis — `/knapsack-learn` command.
+ * Session analysis — Headroom-style failure learning with success correlation.
  *
- * Analyzes the current pi session for patterns and learnings:
- * 1. Failed tool calls → saved as gotchas
- * 2. Successful workarounds → saved as facts
- * 3. User corrections → saved as preferences
- * 4. Anchor-worthy decisions → suggested for drift detection
+ * ## Two-pass parsing
  *
- * Uses pi's session format: JSONL files in ~/.pi/agent/sessions/
+ * Pass 1: Collect toolCall entries from assistant messages (id → {tool, args})
+ * Pass 2: Collect toolResult entries (toolCallId → {success, error})
+ * Merge into timeline with full arguments.
+ *
+ * ## What it extracts
+ *
+ * 1. File path corrections (failed read → successful read of same file)
+ * 2. Command corrections (failed bash → what worked instead)
+ * 3. User corrections ("no, use X instead of Y")
+ * 4. Repeated failures (same error 3+ times)
+ * 5. File access frequency (files accessed often = project structure knowledge)
  *
  * @module session-analysis
  */
@@ -16,33 +22,26 @@ import { existsSync, readFileSync } from "node:fs";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 
-/**
- * Result of session analysis.
- */
+interface ToolEvent {
+	id: string;
+	tool: string;
+	args: Record<string, unknown>;
+	success: boolean;
+	error?: string;
+	timestamp: string;
+}
+
 export interface SessionAnalysis {
-	/** Tool calls that ended with errors */
-	failedTools: Array<{ tool: string; error: string; timestamp: string }>;
-	/** Total tool calls in the session */
 	totalToolCalls: number;
-	/** Patterns detected (repeated commands, common error types) */
+	failedTools: Array<{ tool: string; error: string; timestamp: string }>;
 	patterns: string[];
-	/** Suggested memories to save */
 	suggestions: Array<{ content: string; type: string; importance: number }>;
 }
 
-/**
- * Analyze a pi session file for learnings.
- *
- * Reads the JSONL session file, extracts tool calls and results,
- * identifies failures and patterns.
- *
- * @param sessionPath - Path to the .jsonl session file
- * @returns Session analysis with failed tools, patterns, suggestions
- */
 export function analyzeSession(sessionPath: string): SessionAnalysis {
 	const analysis: SessionAnalysis = {
-		failedTools: [],
 		totalToolCalls: 0,
+		failedTools: [],
 		patterns: [],
 		suggestions: [],
 	};
@@ -51,71 +50,272 @@ export function analyzeSession(sessionPath: string): SessionAnalysis {
 
 	const lines = readFileSync(sessionPath, "utf-8").split("\n").filter(Boolean);
 
-	const toolErrors: Record<string, number> = {};
-	const commandCounts: Record<string, number> = {};
+	// Pass 1: collect toolCall → toolResult pairs
+	const toolCalls = new Map<string, { tool: string; args: Record<string, unknown> }>();
+	const toolResults: Array<{
+		id: string;
+		tool: string;
+		success: boolean;
+		error?: string;
+		timestamp: string;
+	}> = [];
+	const userMessages: string[] = [];
 
 	for (const line of lines) {
 		try {
 			const entry = JSON.parse(line);
-			if (!isToolResultEntry(entry)) continue;
-
-			// Pi JSONL: tool result is nested under entry.message
 			const msg = (entry.message ?? entry) as Record<string, unknown>;
+			const role = msg.role as string;
 
-			analysis.totalToolCalls++;
-
-			const toolName = String(msg.toolName ?? "unknown");
-
-			// Track command patterns
-			if (toolName === "bash") {
-				const input = msg.input as Record<string, unknown> | undefined;
-				if (input?.command) {
-					const cmd = String(input.command).split(/\s+/)[0] ?? "unknown";
-					commandCounts[cmd] = (commandCounts[cmd] ?? 0) + 1;
+			if (role === "assistant") {
+				const content = msg.content;
+				if (!Array.isArray(content)) continue;
+				for (const block of content) {
+					if (typeof block !== "object" || block === null) continue;
+					const b = block as Record<string, unknown>;
+					if (b.type === "toolCall") {
+						toolCalls.set(String(b.id ?? ""), {
+							tool: String(b.name ?? "unknown"),
+							args: (b.arguments ?? b.input ?? {}) as Record<string, unknown>,
+						});
+					}
 				}
-			}
-
-			// Check for errors
-			if (msg.isError) {
-				const errorMsg = extractErrorText(msg.content);
-				analysis.failedTools.push({
-					tool: toolName,
-					error: errorMsg.slice(0, 200),
+			} else if (role === "toolResult") {
+				toolResults.push({
+					id: String(msg.toolCallId ?? ""),
+					tool: String(msg.toolName ?? "unknown"),
+					success: !msg.isError,
+					error: msg.isError ? extractErrorText(msg.content) : undefined,
 					timestamp: String(msg.timestamp ?? entry.timestamp ?? ""),
 				});
-				toolErrors[toolName] = (toolErrors[toolName] ?? 0) + 1;
+			} else if (role === "user") {
+				const text = extractText(msg.content);
+				if (text) userMessages.push(text);
 			}
 		} catch {
-			// Skip malformed lines
+			// skip
 		}
 	}
 
-	// Detect patterns
-	for (const [tool, count] of Object.entries(toolErrors)) {
-		if (count >= 2) {
-			analysis.patterns.push(`${tool} failed ${count} times`);
-		}
-	}
-	for (const [cmd, count] of Object.entries(commandCounts)) {
-		if (count >= 5) {
-			analysis.patterns.push(`frequently used: ${cmd} (${count} times)`);
-		}
+	// Build timeline: merge toolCalls + toolResults
+	const timeline: ToolEvent[] = toolResults.map((r) => {
+		const call = toolCalls.get(r.id);
+		return {
+			id: r.id,
+			tool: call?.tool ?? r.tool,
+			args: call?.args ?? {},
+			success: r.success,
+			error: r.error,
+			timestamp: r.timestamp,
+		};
+	});
+
+	analysis.totalToolCalls = timeline.length;
+	analysis.failedTools = timeline
+		.filter((t) => !t.success)
+		.map((t) => ({
+			tool: t.tool,
+			error: (t.error ?? "unknown").slice(0, 200),
+			timestamp: t.timestamp,
+		}));
+
+	// 1. File path corrections
+	for (const c of findPathCorrections(timeline)) {
+		analysis.suggestions.push({ content: c, type: "gotcha", importance: 0.8 });
 	}
 
-	// Generate suggestions
-	analysis.suggestions = generateSuggestions(analysis);
+	// 2. Command corrections
+	for (const c of findCommandCorrections(timeline)) {
+		analysis.suggestions.push({ content: c, type: "command", importance: 0.7 });
+	}
+
+	// 3. User corrections
+	for (const p of findUserCorrections(userMessages)) {
+		analysis.suggestions.push({ content: p, type: "preference", importance: 0.6 });
+	}
+
+	// 4. Repeated failures
+	analysis.patterns = findRepeatedFailures(timeline);
+
+	// 5. Frequently accessed files
+	for (const f of findFrequentFiles(timeline)) {
+		analysis.suggestions.push({ content: f, type: "fact", importance: 0.4 });
+	}
+
+	// Deduplicate
+	const seen = new Set<string>();
+	analysis.suggestions = analysis.suggestions
+		.filter((s) => {
+			const key = s.content.slice(0, 50);
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		})
+		.slice(0, 10);
 
 	return analysis;
 }
 
 /**
- * Save analysis findings to memory.
- *
- * @param analysis - Session analysis result
- * @param db - Knapsack database
- * @param store - Runtime store
- * @returns Number of memories saved
+ * Find file path corrections: failed read/edit → successful read/edit of similar file.
  */
+function findPathCorrections(timeline: ToolEvent[]): string[] {
+	const corrections: string[] = [];
+
+	for (let i = 0; i < timeline.length; i++) {
+		const fail = timeline[i];
+		if (!fail || fail.success) continue;
+		if (fail.tool !== "read" && fail.tool !== "edit") continue;
+
+		const failedPath = String(fail.args.path ?? fail.args.file ?? "");
+		if (!failedPath) continue;
+		const fileName = failedPath.split("/").pop() ?? failedPath;
+
+		// Look ahead for a successful read/edit of the same filename
+		for (let j = i + 1; j < Math.min(i + 20, timeline.length); j++) {
+			const next = timeline[j];
+			if (!next?.success) continue;
+			if (next.tool !== "read" && next.tool !== "edit") continue;
+
+			const successPath = String(next.args.path ?? next.args.file ?? "");
+			if (!successPath?.endsWith(fileName)) continue;
+			if (successPath === failedPath) continue;
+
+			corrections.push(`${fileName} is at ${successPath}, not ${failedPath}`);
+			break;
+		}
+	}
+
+	return [...new Set(corrections)];
+}
+
+/**
+ * Find command corrections: failed bash → successful bash with similar command.
+ */
+function findCommandCorrections(timeline: ToolEvent[]): string[] {
+	const corrections: string[] = [];
+
+	for (let i = 0; i < timeline.length; i++) {
+		const fail = timeline[i];
+		if (!fail || fail.success || fail.tool !== "bash") continue;
+
+		const failedCmd = String(fail.args.command ?? "");
+		if (!failedCmd) continue;
+		const cmdBase = failedCmd.split(/\s+/)[0] ?? failedCmd;
+
+		for (let j = i + 1; j < Math.min(i + 10, timeline.length); j++) {
+			const next = timeline[j];
+			if (!next?.success || next.tool !== "bash") continue;
+
+			const successCmd = String(next.args.command ?? "");
+			if (!successCmd.startsWith(cmdBase) || successCmd === failedCmd) continue;
+
+			corrections.push(
+				`Use \`${successCmd.slice(0, 80)}\` instead of \`${failedCmd.slice(0, 60)}\``,
+			);
+			break;
+		}
+	}
+
+	return [...new Set(corrections)].slice(0, 5);
+}
+
+/**
+ * Detect user corrections: "no, use X instead of Y" patterns.
+ */
+function findUserCorrections(messages: string[]): string[] {
+	const corrections: string[] = [];
+
+	for (const msg of messages) {
+		if (msg.length > 300) continue;
+		const _lower = msg.toLowerCase();
+
+		const isCorrection =
+			/\b(no|don'?t|stop|wrong|instead|actually)\b/i.test(msg) ||
+			/\buse\s+.+\s+(?:instead|not)\b/i.test(msg) ||
+			/\bi\s+(?:prefer|want|need)\b/i.test(msg);
+
+		if (isCorrection && msg.length > 5) {
+			corrections.push(msg.slice(0, 150));
+		}
+	}
+
+	return [...new Set(corrections)].slice(0, 3);
+}
+
+/**
+ * Find tools that failed repeatedly with the same error.
+ */
+function findRepeatedFailures(timeline: ToolEvent[]): string[] {
+	const counts: Record<string, number> = {};
+
+	for (const t of timeline) {
+		if (t.success || !t.error) continue;
+		const key = `${t.tool}:${t.error.slice(0, 40)}`;
+		counts[key] = (counts[key] ?? 0) + 1;
+	}
+
+	const results: string[] = [];
+	for (const [key, count] of Object.entries(counts)) {
+		if (count >= 2) {
+			const [tool, ...errorParts] = key.split(":");
+			results.push(`${tool} failed ${count}x: ${errorParts.join(":")}`);
+		}
+	}
+
+	return results;
+}
+
+/**
+ * Find files accessed frequently — project structure knowledge.
+ */
+function findFrequentFiles(timeline: ToolEvent[]): string[] {
+	const counts: Record<string, number> = {};
+
+	for (const t of timeline) {
+		if (t.tool !== "read" && t.tool !== "edit") continue;
+		const path = String(t.args.path ?? t.args.file ?? "");
+		if (!path) continue;
+		counts[path] = (counts[path] ?? 0) + 1;
+	}
+
+	return Object.entries(counts)
+		.filter(([, count]) => count >= 3)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 3)
+		.map(([path, count]) => `Frequently accessed (${count}x): ${path}`);
+}
+
+// ── Helpers ─────────────────────────────────────────────
+
+function extractErrorText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.filter(
+				(b): b is { text: string } =>
+					typeof b === "object" && b !== null && b.type === "text" && typeof b.text === "string",
+			)
+			.map((b) => b.text)
+			.join(" ");
+	}
+	return "Unknown error";
+}
+
+function extractText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.filter(
+				(b): b is { text: string } =>
+					typeof b === "object" && b !== null && b.type === "text" && typeof b.text === "string",
+			)
+			.map((b) => b.text)
+			.join(" ");
+	}
+	return "";
+}
+
 export function saveAnalysisToMemory(
 	analysis: SessionAnalysis,
 	db: KnapsackDB,
@@ -126,15 +326,7 @@ export function saveAnalysisToMemory(
 	for (const suggestion of analysis.suggestions) {
 		db.saveMemory({
 			content: suggestion.content,
-			type: suggestion.type as
-				| "decision"
-				| "fact"
-				| "gotcha"
-				| "convention"
-				| "preference"
-				| "command"
-				| "constraint"
-				| "hypothesis",
+			type: suggestion.type as "gotcha" | "command" | "preference" | "fact",
 			scope: "project",
 			project: store.projectRoot ?? undefined,
 			importance: suggestion.importance,
@@ -146,9 +338,6 @@ export function saveAnalysisToMemory(
 	return saved;
 }
 
-/**
- * Format analysis for display in `/knapsack-learn` command.
- */
 export function formatAnalysis(analysis: SessionAnalysis): string {
 	const lines: string[] = [
 		"🎒 Knapsack Session Analysis",
@@ -167,60 +356,13 @@ export function formatAnalysis(analysis: SessionAnalysis): string {
 	}
 
 	if (analysis.suggestions.length > 0) {
-		lines.push(`Saved ${analysis.suggestions.length} memories:`);
+		lines.push(`Saved ${analysis.suggestions.length} learnings:`);
 		for (const s of analysis.suggestions) {
 			lines.push(`  • [${s.type}] ${s.content.slice(0, 80)}`);
 		}
 	} else {
-		lines.push("No new learnings to save.");
+		lines.push("No new learnings found.");
 	}
 
 	return lines.join("\n");
-}
-
-// ── Helpers ─────────────────────────────────────────────
-
-function isToolResultEntry(entry: unknown): boolean {
-	if (typeof entry !== "object" || entry === null) return false;
-	const e = entry as Record<string, unknown>;
-	// Pi JSONL: top-level type="message", actual tool result nested in message field
-	const msg = e.message as Record<string, unknown> | undefined;
-	if (msg && msg.role === "toolResult") return true;
-	// Direct format (not nested)
-	return e.role === "toolResult" || (e.toolName !== undefined && e.content !== undefined);
-}
-
-function extractErrorText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (Array.isArray(content)) {
-		return content
-			.filter((b): b is { text: string } => b?.type === "text" && typeof b.text === "string")
-			.map((b) => b.text)
-			.join(" ");
-	}
-	return "Unknown error";
-}
-
-function generateSuggestions(
-	analysis: SessionAnalysis,
-): Array<{ content: string; type: string; importance: number }> {
-	const suggestions: Array<{ content: string; type: string; importance: number }> = [];
-
-	// Deduplicate failed tools by error pattern
-	const seenErrors = new Set<string>();
-
-	for (const fail of analysis.failedTools) {
-		const key = `${fail.tool}:${fail.error.slice(0, 50)}`;
-		if (seenErrors.has(key)) continue;
-		seenErrors.add(key);
-
-		suggestions.push({
-			content: `${fail.tool} error: ${fail.error}`,
-			type: "gotcha",
-			importance: 0.7,
-		});
-	}
-
-	// Limit to avoid flooding
-	return suggestions.slice(0, 5);
 }
