@@ -23,6 +23,7 @@
 		]
 	},
 	"scripts": {
+		"dev": "pi --approve",
 		"check": "biome check .",
 		"fix": "biome check --write .",
 		"test": "vitest run",

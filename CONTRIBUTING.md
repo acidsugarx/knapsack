@@ -8,26 +8,68 @@ Thanks for your interest! Knapsack is an open-source token reduction and memory 
 git clone git@github.com:acidsugarx/knapsack.git
 cd knapsack
 
-# Install dependencies
+# Install dependencies (auto-installs git hooks via lefthook)
 npm install
 
 # Run checks
 npm run check      # lint + format (biome)
 npm run typecheck  # TypeScript
-npm run test       # vitest
+npm run test       # vitest (12 tests)
+```
+
+## Development workflow (for AI agents too)
+
+Knapsack is designed to be developed by AI agents. Here's the loop:
+
+```bash
+# 1. Start pi with knapsack loaded
+npm run dev
+# or: make dev
+# or: pi --approve
+# (auto-discovery from .pi/extensions/knapsack/)
+
+# 2. Agent makes changes to src/*.ts
+
+# 3. Reload pi to pick up changes
+#    Type /reload in pi
+
+# 4. Verify changes work — check footer for "🎒 ready"
+#    Run a large grep to trigger compression
+#    /knapsack-status
+
+# 5. Run tests before committing
+npm test
+
+# 6. Commit (pre-commit hooks run biome + vitest automatically)
+git commit -m "feat: ..."
 ```
 
 ## Testing with Pi
 
 ```bash
-# From the knapsack directory:
+# From the knapsack directory, pi auto-discovers the extension:
+pi --approve
+
+# Or explicitly:
 pi -e ./src/index.ts
 
-# Then in Pi, verify it loaded:
-# - Check footer for "🎒 ready"
-# - Run a large grep to trigger compression
-# - Try /knapsack-status
+# Then in Pi, verify:
+# - Footer shows "🎒 ready" (or "🎒 (no vault)")
+# - /knapsack-status
+# - Run `grep -r "something" .` to trigger compression
+# - knapsack_search("test") to test memory
 ```
+
+## Pre-commit hooks
+
+On `npm install`, lefthook installs git hooks:
+
+| Hook | What runs |
+|---|---|
+| `pre-commit` | biome check (lint + format) + vitest run |
+| `commit-msg` | commitlint (conventional commits) |
+
+To skip hooks temporarily: `git commit --no-verify`
 
 ## Project structure
 
