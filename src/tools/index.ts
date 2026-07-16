@@ -155,7 +155,7 @@ export function registerTools(
 			// BM25 score and rank
 			const { scoreAndRank } = await import("../pillar2-memory/scoring");
 			const allEntries = db.getAllMemories(store.projectRoot ?? undefined);
-			const ranked = scoreAndRank(params.query, candidates, allEntries, params.limit ?? 10);
+			const ranked = await scoreAndRank(params.query, candidates, allEntries, params.limit ?? 10);
 
 			const emoji: Record<string, string> = {
 				decision: "🔒",
@@ -262,6 +262,20 @@ export function registerTools(
 				};
 			}
 
+			// Generate embedding if available
+			let embedding: string | null = null;
+			try {
+				const { embed, serializeEmbedding, isAvailable } = await import(
+					"../pillar2-memory/embeddings"
+				);
+				if (isAvailable()) {
+					const vec = await embed(params.content);
+					if (vec) embedding = serializeEmbedding(vec);
+				}
+			} catch {
+				// Embeddings not available — skip
+			}
+
 			const entry = db.saveMemory({
 				content: params.content,
 				type: params.type as
@@ -277,6 +291,7 @@ export function registerTools(
 				importance: params.importance ?? 0.5,
 				project: store.projectRoot ?? undefined,
 				sourceSession: store.sessionId ?? undefined,
+				embedding,
 			});
 
 			return {

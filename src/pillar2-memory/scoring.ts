@@ -1,18 +1,24 @@
 /**
- * Semantic memory search with BM25-inspired scoring.
+ * Hybrid memory search — BM25 + optional embeddings fusion.
  *
- * Uses sigmoid normalization for stable relevance scoring regardless
- * of database size. Shared STOP_WORDS list used by both tokenize()
- * and inject.ts extractSearchTerms().
+ * ## Scoring
+ *
+ * When embeddings are available (@xenova/transformers installed):
+ *   score = 0.35×BM25 + 0.35×cosine_sim + 0.2×importance + 0.1×recency
+ *
+ * When embeddings unavailable (graceful degradation):
+ *   score = 0.5×BM25_sigmoid + 0.3×importance + 0.2×recency
+ *
+ * The embedding weight gives semantic matches ("deployment strategy"
+ * finds "CI/CD pipeline") while BM25 keeps exact keyword matches
+ * ("sessionId" finds entries with "sessionId", not "session").
  *
  * @module search-scoring
  */
 
 import type { MemoryEntry } from "../core/types";
+import { cosineSimilarity, deserializeEmbedding, embed, isAvailable } from "./embeddings";
 
-/**
- * Shared stop words list — used by tokenize() and inject.ts.
- */
 export const STOP_WORDS = new Set([
 	"the",
 	"a",
@@ -94,39 +100,71 @@ export interface ScoredMemory {
 	score: number;
 }
 
-export function scoreAndRank(
+/**
+ * Score and rank memories by hybrid BM25 + embedding relevance.
+ *
+ * @param query - User's search query
+ * @param entries - Candidate memory entries to score
+ * @param allEntries - All entries in the database (for IDF calculation)
+ * @param limit - Maximum results to return
+ * @returns Ranked list of scored memories
+ */
+export async function scoreAndRank(
 	query: string,
 	entries: MemoryEntry[],
 	allEntries: MemoryEntry[],
 	limit = 10,
-): ScoredMemory[] {
+): Promise<ScoredMemory[]> {
 	const queryTerms = tokenize(query);
-	if (queryTerms.length === 0) return [];
+	if (queryTerms.length === 0 && !isAvailable()) return [];
 
 	const idf = computeIDF(queryTerms, allEntries);
 
-	const scored = entries.map((entry) => {
-		const contentTerms = tokenize(entry.content);
+	// Generate query embedding if available
+	let queryEmbedding: Float32Array | null = null;
+	if (isAvailable()) {
+		queryEmbedding = await embed(query);
+	}
 
-		let relevance = 0;
+	const scored = entries.map((entry) => {
+		// ── BM25 relevance ──
+		const contentTerms = tokenize(entry.content);
+		let bm25Relevance = 0;
 		for (const term of queryTerms) {
 			const termIDF = idf.get(term) ?? 0;
 			const tf = contentTerms.filter((t) => t === term).length;
 			if (tf > 0 && termIDF > 0) {
-				relevance += termIDF * (tf / (tf + 1.2));
+				bm25Relevance += termIDF * (tf / (tf + 1.2));
+			}
+		}
+		const bm25Score = bm25Relevance > 0 ? bm25Relevance / (bm25Relevance + 1.5) : 0;
+
+		// ── Embedding cosine similarity ──
+		let embeddingScore = 0;
+		if (queryEmbedding && entry.embedding) {
+			const entryVec = deserializeEmbedding(entry.embedding);
+			if (entryVec) {
+				embeddingScore = Math.max(0, cosineSimilarity(queryEmbedding, entryVec));
 			}
 		}
 
-		const normalizedRelevance = relevance > 0 ? relevance / (relevance + 1.5) : 0;
-
+		// ── Recency ──
 		const ageMs = Date.now() - entry.recency;
 		const recency = Math.max(0.1, 1.0 - ageMs / (30 * 24 * 60 * 60 * 1000));
 
-		const score = 0.5 * normalizedRelevance + 0.3 * entry.importance + 0.2 * recency;
+		// ── Composite score ──
+		let score: number;
+		if (queryEmbedding) {
+			// Hybrid: BM25 + embeddings
+			score = 0.35 * bm25Score + 0.35 * embeddingScore + 0.2 * entry.importance + 0.1 * recency;
+		} else {
+			// BM25 only
+			score = 0.5 * bm25Score + 0.3 * entry.importance + 0.2 * recency;
+		}
 
 		return {
 			entry,
-			relevance: Math.round(normalizedRelevance * 100) / 100,
+			relevance: Math.round(Math.max(bm25Score, embeddingScore) * 100) / 100,
 			importance: entry.importance,
 			recency: Math.round(recency * 100) / 100,
 			score: Math.round(score * 100) / 100,

@@ -59,7 +59,8 @@ const SCHEMA = [
     content_hash TEXT NOT NULL UNIQUE,
     source_session TEXT,
     access_count INTEGER NOT NULL DEFAULT 0,
-    last_accessed TEXT
+    last_accessed TEXT,
+    embedding TEXT
   )`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type)`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory(scope)`,
@@ -121,6 +122,7 @@ function rowToMemory(row: Record<string, unknown>): MemoryEntry {
 		sourceSession: row.source_session ? String(row.source_session) : null,
 		accessCount: Number(row.access_count ?? 0),
 		lastAccessed: row.last_accessed ? String(row.last_accessed) : null,
+		embedding: row.embedding ? String(row.embedding) : null,
 	};
 }
 
@@ -189,6 +191,7 @@ export interface KnapsackDB {
 		project?: string;
 		importance?: number;
 		sourceSession?: string;
+		embedding?: string | null;
 	}): MemoryEntry;
 
 	searchMemory(
@@ -321,13 +324,14 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			const contentHash = sha256(input.content + input.type);
 			const ts = Date.now();
 
-			const sql = `INSERT INTO memory (id, content, type, scope, project, importance, recency, created_at, updated_at, content_hash, source_session)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			const sql = `INSERT INTO memory (id, content, type, scope, project, importance, recency, created_at, updated_at, content_hash, source_session, embedding)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(content_hash) DO UPDATE SET
           importance = MAX(importance, excluded.importance),
           access_count = access_count + 1,
           updated_at = excluded.updated_at,
-          last_accessed = excluded.updated_at`;
+          last_accessed = excluded.updated_at,
+          embedding = COALESCE(excluded.embedding, memory.embedding)`;
 
 			db.run(sql, [
 				id,
@@ -341,6 +345,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				now,
 				contentHash,
 				input.sourceSession ?? null,
+				input.embedding ?? null,
 			]);
 			save();
 

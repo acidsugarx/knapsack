@@ -71,11 +71,15 @@ export default async function knapsack(pi: ExtensionAPI) {
 		const home = process.env.KNAPSACK_HOME ?? `${process.env.HOME ?? "~"}/.knapsack`;
 		const dbPath = `${home}/memory.db`;
 
-		// Ensure directory exists
 		const fs = await import("node:fs");
 		fs.mkdirSync(home, { recursive: true });
 
 		db = await createDB(dbPath);
+
+		// Initialize embeddings (optional, graceful fallback)
+		const { initEmbeddings, isAvailable } = await import("./pillar2-memory/embeddings");
+		await initEmbeddings();
+
 		const projectRoot = getProjectRoot(ctx.cwd);
 		const vaultPath = discoverVault();
 
@@ -86,11 +90,14 @@ export default async function knapsack(pi: ExtensionAPI) {
 			vaultPath,
 		};
 
-		if (vaultPath) {
-			ctx.ui.setStatus("knapsack", "🎒 ready");
-		} else {
-			ctx.ui.setStatus("knapsack", "🎒 (no vault)");
-		}
+		const status = vaultPath
+			? isAvailable()
+				? "🎒 ready (embeddings)"
+				: "🎒 ready"
+			: isAvailable()
+				? "🎒 (no vault, embeddings)"
+				: "🎒 (no vault)";
+		ctx.ui.setStatus("knapsack", status);
 	});
 
 	// ── Pillar 1: Compression ──────────────────────────────
@@ -109,7 +116,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 		let systemPrompt = `${event.systemPrompt}\n\n${knapsackPromptGuidance()}`;
 
 		// Inject relevant memories if available
-		const memoryBlock = memoryInjectHook(event, db, store);
+		const memoryBlock = await memoryInjectHook(event, db, store);
 		if (memoryBlock) {
 			systemPrompt += `\n\n${memoryBlock}`;
 		}

@@ -15,11 +15,11 @@ import { STOP_WORDS, scoreAndRank } from "./scoring";
 const MAX_INJECTED_MEMORIES = 5;
 const MAX_CANDIDATES = 15;
 
-export function memoryInjectHook(
+export async function memoryInjectHook(
 	event: BeforeAgentStartEvent,
 	db: KnapsackDB,
 	store: KnapsackStore,
-): string | undefined {
+): Promise<string | undefined> {
 	const terms = extractSearchTerms(event.prompt);
 	const project = store.projectRoot ?? undefined;
 
@@ -41,7 +41,7 @@ export function memoryInjectHook(
 
 	if (candidates.size === 0) return;
 
-	const ranked = scoreAndRank(
+	const ranked = await scoreAndRank(
 		terms.join(" "),
 		Array.from(candidates.values()),
 		Array.from(candidates.values()),
