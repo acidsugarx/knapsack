@@ -104,11 +104,25 @@ Pi session
 
 | Variable | Default | Description |
 |---|---|---|
-| `KNAPSACK_HOME` | `~/.knapsack` | Database and config directory |
+| `KNAPSACK_HOME` | `~/.knapsack` | Database, CCR cache, and config directory |
+| `KNAPSACK_OBSIDIAN_VAULT` | auto-discovered | Explicit Obsidian vault path override |
+
+## Embeddings (optional)
+
+Semantic embeddings are optional. Install to enable:
+
+```bash
+npm install @xenova/transformers sharp
+```
+
+- With embeddings: `score = 0.35×BM25 + 0.35×cosine + 0.2×importance + 0.1×recency`
+- Without embeddings: `score = 0.5×BM25 + 0.3×importance + 0.2×recency`
+
+`/knapsack-status` shows current state.
 
 ## Obsidian integration
 
-Knapsack reads your Obsidian vault config (`obsidian.json`) to discover your vault path. Cached originals are stored as Markdown notes under `knapsack/compress/` in your vault. No Obsidian plugin required — pure filesystem integration.
+Knapsack reads your Obsidian vault config (`obsidian.json`) to discover your vault path. CCR originals are stored in `~/.knapsack/cache/` (not in the vault). Notes created via `knapsack_note` go to vault root.
 
 ## Limitations
 

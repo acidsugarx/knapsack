@@ -53,11 +53,15 @@ export function registerCommands(
 			const sessionStats = db.getSessionCompressionStats(store.sessionId ?? "");
 			const allTime = db.getAllTimeStats();
 
+			const { isAvailable } = await import("../pillar2-memory/embeddings");
+			const embeddingsOn = isAvailable();
+
 			const lines = [
 				"🎒 Knapsack Status",
 				"──────────────────",
 				`DB: ${store.dbPath}`,
 				`Vault: ${store.vaultPath ?? "not found"}`,
+				`Embeddings: ${embeddingsOn ? "on (384-dim MiniLM)" : "off (install @xenova/transformers to enable)"}`,
 				`Project: ${store.projectRoot ?? "not in git repo"}`,
 				`Session: ${store.sessionId ?? "none"}`,
 				"",
