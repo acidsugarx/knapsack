@@ -10,6 +10,9 @@ You have access to Knapsack, a persistent memory and token-reduction layer. Use 
 ## When to use each tool
 
 ### knapsack_search — BEFORE you act
+
+Keyword-based (FTS5) — use short specific terms. Semantic search is planned for v0.2.
+
 Call this when:
 - Starting a new task — check if there's relevant memory
 - About to make a technical decision — see what was decided before
@@ -17,7 +20,7 @@ Call this when:
 - User mentions something you discussed previously
 
 ```
-knapsack_search(query="postgres connection pool", limit=5)
+knapsack_search(query="postgres pool", limit=5)
 ```
 
 ### knapsack_save — AFTER important events

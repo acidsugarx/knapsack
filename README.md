@@ -110,6 +110,32 @@ Pi session
 
 Knapsack reads your Obsidian vault config (`obsidian.json`) to discover your vault path. Cached originals are stored as Markdown notes under `knapsack/compress/` in your vault. No Obsidian plugin required — pure filesystem integration.
 
+## Limitations
+
+- **Search is keyword-based** (SQLite FTS5 / LIKE). Semantic/embedding search is planned for v0.2.
+- **Compression is lossy for non-signal content** — see the table below for what each strategy discards.
+- **No tree-sitter AST compression yet** — code files pass through uncompressed.
+- **Obsidian vault must be on the same machine** — no remote vault support.
+
+### What compression discards
+
+| Strategy | Discarded | Recoverable? |
+|----------|-----------|-------------|
+| bash | INFO/DEBUG lines (collapsed to summary), non-error lines beyond tail | ✅ via `knapsack_retrieve` |
+| grep | Matches beyond 3 per file, files beyond 5 per dir, dirs beyond 8 | ✅ via `knapsack_retrieve` |
+| find | Files beyond 5 per dir, dirs beyond 15 | ✅ via `knapsack_retrieve` |
+
+All discarded content is recoverable via `knapsack_retrieve(hash)` — the full original is cached in your Obsidian vault.
+
+## Roadmap
+
+- [ ] **v0.2**: Semantic/embedding search for memory
+- [ ] **v0.2**: Tree-sitter code compression (AST outline)
+- [ ] **v0.3**: JSON compression strategy
+- [ ] **v0.3**: Drift detection (linksee-style decision anchors)
+- [ ] **v0.4**: `/knapsack-learn` full session analysis
+- [ ] **v1.0**: npm publish
+
 ## Development
 
 ```bash

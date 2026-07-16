@@ -96,10 +96,10 @@ export function registerTools(
 		name: "knapsack_search",
 		label: "Knapsack Search",
 		description:
-			"Search Knapsack's persistent memory for relevant facts, decisions, gotchas, " +
-			"conventions, and preferences from previous sessions. Use this before starting " +
-			"a new task to recall what you've learned.",
-		promptSnippet: "Search persistent memory for relevant knowledge from previous sessions",
+			"Search Knapsack's persistent memory using FTS5 keyword search. " +
+			"Matches by exact keywords in saved facts, decisions, gotchas, conventions, and preferences. " +
+			"Use short, specific terms for best results. Semantic/embedding search is planned for v0.2.",
+		promptSnippet: "Keyword-search persistent memory (FTS5 — use short specific terms)",
 		promptGuidelines: [
 			"Call knapsack_search at the start of a new task to check for relevant memories. " +
 				"Search for the topic, technology, file name, or error message you're working with.",
@@ -377,14 +377,27 @@ export function registerTools(
 			const results = searchVault(store.vaultPath, params.query, params.limit ?? 20);
 
 			if (!results || results.length === 0) {
+				// Count total markdown files in vault for context
+				let vaultFileCount = 0;
+				try {
+					const { execSync } = await import("node:child_process");
+					const count = execSync(`find "${store.vaultPath}" -name "*.md" 2>/dev/null | wc -l`, {
+						encoding: "utf-8",
+						timeout: 3000,
+					}).trim();
+					vaultFileCount = parseInt(count, 10) || 0;
+				} catch {
+					// Can't count — skip
+				}
+
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `No results found in Obsidian vault for "${params.query}".`,
+							text: `No results for "${params.query}" in Obsidian vault (searched ${vaultFileCount || "?"} markdown files). Try different keywords or check vault path.`,
 						},
 					],
-					details: { query: params.query, results: 0 },
+					details: { query: params.query, results: 0, vaultFiles: vaultFileCount },
 				};
 			}
 
