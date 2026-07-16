@@ -27,7 +27,7 @@ import { cache } from "../ccr";
 import { compressBash } from "../strategies/bash";
 import { compressFind } from "../strategies/find";
 import { compressGrep } from "../strategies/grep";
-import { shouldCompress, TOOL_STRATEGY } from "../thresholds";
+import { getStrategy, shouldCompress } from "../thresholds";
 
 /**
  * Number of characters to extract from tool output for token estimation.
@@ -55,7 +55,7 @@ export async function compressionHook(
 	store: KnapsackStore,
 ): Promise<{ content: Array<{ type: "text"; text: string }> } | undefined> {
 	const { toolName } = event;
-	const strategy = TOOL_STRATEGY[toolName];
+	const strategy = getStrategy(toolName);
 	if (!strategy) return;
 
 	// Extract text content from the event
