@@ -12,8 +12,7 @@
  *
  * ## Fallback
  *
- * If auto-detection returns null, the static TOOL_STRATEGY map is checked.
- * This allows explicit overrides for tools where auto-detection is unreliable.
+ * If auto-detection returns null, no strategy applies and output passes through uncompressed.
  *
  * @module content-detection
  */

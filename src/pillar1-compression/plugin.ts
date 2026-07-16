@@ -52,7 +52,7 @@ import type { CompressionResult } from "../core/types";
  * ```
  */
 export interface CompressionStrategy {
-	/** Unique identifier — used in TOOL_STRATEGY mapping and env vars */
+	/** Unique identifier — used for routing and stats */
 	name: string;
 	/** Human-readable label for debugging and stats */
 	label: string;
@@ -88,7 +88,7 @@ export interface CompressionContext {
  * Auto-detects content type from output structure.
  *
  * Used for content-based routing: when a strategy registers a detector,
- * the registry calls it before checking the static TOOL_STRATEGY map.
+ * the registry calls it before falling back to tool-name mapping.
  *
  * @example
  * ```typescript

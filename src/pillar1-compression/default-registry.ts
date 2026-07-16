@@ -82,44 +82,15 @@ export function createDefaultRegistry(): StrategyRegistry {
 		},
 	});
 
-	// ── Content detectors for auto-routing ────────────────
-	registry.registerDetector({
-		name: "json",
-		detect(output) {
-			const trimmed = output.trim();
-			return /^\s*[[{]/.test(trimmed) && !/^\[(ERROR|WARN|INFO|DEBUG)/.test(trimmed);
-		},
-	});
-
-	registry.registerDetector({
-		name: "grep",
-		detect(output) {
-			const lines = output.split("\n").filter(Boolean);
-			const grepLines = lines.filter((l) => {
-				const match = l.match(/^(.+?):(\d+):(.*)$/);
-				if (!match) return false;
-				const file = match[1] ?? "";
-				return file.includes("/") || /\.[a-z]{1,6}$/i.test(file);
-			});
-			return grepLines.length > 0 && grepLines.length >= lines.length * 0.6;
-		},
-	});
-
-	registry.registerDetector({
-		name: "bash",
-		detect(output) {
-			const auto = detectContentType(output);
-			return auto === "bash";
-		},
-	});
-
-	registry.registerDetector({
-		name: "find",
-		detect(output) {
-			const auto = detectContentType(output);
-			return auto === "find";
-		},
-	});
+	// ── Unified content detector (all routing via detectContentType) ──
+	for (const type of ["json", "grep", "bash", "find"] as const) {
+		registry.registerDetector({
+			name: type,
+			detect(output) {
+				return detectContentType(output) === type;
+			},
+		});
+	}
 
 	return registry;
 }

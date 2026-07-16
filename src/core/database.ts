@@ -290,7 +290,24 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 	 * Save the database to disk.
 	 * Called after every write to ensure persistence.
 	 */
+	/**
+	 * Save the database to disk — debounced.
+	 * Accumulates writes and flushes every 2s or on close.
+	 */
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 	function save(): void {
+		if (saveTimer) clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			const data = db.export();
+			writeFileSync(dbPath, Buffer.from(data));
+			saveTimer = null;
+		}, 2000);
+	}
+	function saveNow(): void {
+		if (saveTimer) {
+			clearTimeout(saveTimer);
+			saveTimer = null;
+		}
 		const data = db.export();
 		writeFileSync(dbPath, Buffer.from(data));
 	}
@@ -513,7 +530,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		},
 
 		close() {
-			save();
+			saveNow();
 			db.close();
 		},
 	};

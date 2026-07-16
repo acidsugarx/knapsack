@@ -101,7 +101,7 @@ export function cache(
 		"---",
 	].join("\n");
 
-	const body = `\n# Compressed ${meta.toolName} output\n\nOriginal: ${meta.originalTokens} tokens → Compressed: ${meta.compressedTokens} tokens (${meta.savingsPercent}% saved)\n\n\`\`\`\n${original}\n\`\`\`\n`;
+	const body = `\n# Compressed ${meta.toolName} output\n\nOriginal: ${meta.originalTokens} tokens → Compressed: ${meta.compressedTokens} tokens (${meta.savingsPercent}% saved)\n\n\`\`\`knapsack-ccr\n${original}\n\`\`\`\n`;
 
 	writeFileSync(notePath, `${frontmatter}\n${body}`, "utf-8");
 
@@ -127,8 +127,8 @@ export function retrieve(vaultPath: string | null, hash: string): string | null 
 
 	const content = readFileSync(notePath, "utf-8");
 
-	// Extract body from code fence
-	const fenceMatch = content.match(/```\n([\s\S]*?)\n```/);
+	// Extract body from code fence — uses unique delimiter to avoid truncation
+	const fenceMatch = content.match(/```knapsack-ccr\n([\s\S]*?)\n```/);
 	if (fenceMatch?.[1]) {
 		return fenceMatch[1];
 	}

@@ -82,9 +82,17 @@ export async function compressionHook(
 		sessionId: store.sessionId ?? undefined,
 	});
 
+	// Auto-check drift on the output content
+	const { checkDrift } = await import("../pillar2-memory/drift");
+	const driftDetections = checkDrift(db, contentText, store.projectRoot ?? undefined);
+
 	// Build retrieval hint with vault link if available
 	const vaultHint = obsidianNote ? ` · vault: [[${obsidianNote}]]` : "";
-	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${vaultHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
+	const driftHint =
+		driftDetections.length > 0
+			? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
+			: "";
+	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${vaultHint}${driftHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
 
 	return {
 		content: [
