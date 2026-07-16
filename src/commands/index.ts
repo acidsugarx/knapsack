@@ -125,7 +125,7 @@ export function registerCommands(
 function findSessionFile(sessionDir: string, sessionId: string): string | null {
 	try {
 		for (const dir of readdirSync(sessionDir, { recursive: true, withFileTypes: true })) {
-			if (dir.name.includes(sessionId)) {
+			if (dir.isFile() && dir.name.includes(sessionId) && dir.name.endsWith(".jsonl")) {
 				return join(dir.parentPath ?? sessionDir, dir.name);
 			}
 		}
