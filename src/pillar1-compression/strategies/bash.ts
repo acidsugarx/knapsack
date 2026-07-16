@@ -25,8 +25,11 @@ function deduplicateLines(lines: string[]): { line: string; count: number }[] {
 
 function classifyLine(line: string): "error" | "warning" | "info" | "other" {
 	const lower = line.toLowerCase();
-	if (/error|fatal|fail|panic|abort/i.test(lower)) return "error";
-	if (/warn|deprecated|notice/i.test(lower)) return "warning";
+	// Match actual error lines (ERROR/WARN prefix or stack traces), skip lines that just mention "error" in passing
+	if (/^\[error\]|^error[:\s]|^fatal[:\s]|^panic[:\s]|error\s+at/i.test(line)) return "error";
+	// Match [WARN] prefix, standard warning format, or deprecated/notice keywords
+	if (/\[warn\]|^warn(?:ing)?[:\s]/i.test(line)) return "warning";
+	if (/\bdeprecated\b|\bnotice\b/i.test(line) && !/error|fail/i.test(line)) return "warning";
 	if (/info|debug|trace|verbose/i.test(lower)) return "info";
 	return "other";
 }
