@@ -412,4 +412,71 @@ export function registerTools(
 			};
 		},
 	});
+
+	// ── knapsack_note ─────────────────────────────────────
+	pi.registerTool({
+		name: "knapsack_note",
+		label: "Knapsack Note",
+		description:
+			"Create a structured Obsidian note with YAML frontmatter, tags, and wikilinks. " +
+			"Use this to build a Zettelkasten-style knowledge base. Notes saved under knapsack/notes/.",
+		promptSnippet: "Create a structured Obsidian note (Zettelkasten-style)",
+		promptGuidelines: [
+			"Use knapsack_note to create atomic, interlinked notes on concepts you learn. " +
+				"Add tags for discoverability and related titles for [[wikilinks]].",
+		],
+		parameters: Type.Object({
+			title: Type.String({ description: "Note title (becomes filename + H1)" }),
+			content: Type.String({ description: "Markdown body of the note" }),
+			tags: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Tags for discovery (e.g., ['postgres', 'performance'])",
+				}),
+			),
+			type: Type.Optional(
+				Type.String({
+					default: "concept",
+					description: "concept, howto, reference, decision, insight",
+				}),
+			),
+			related: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Related note titles for [[wikilinks]]",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params): Promise<any> {
+			const store = getStore();
+			if (!store?.vaultPath) {
+				return {
+					content: [{ type: "text" as const, text: "No Obsidian vault found." }],
+					details: {},
+				};
+			}
+
+			const { createNote } = await import("../bridge/obsidian-notes");
+			const notePath = createNote(
+				store.vaultPath,
+				{
+					title: params.title,
+					tags: params.tags,
+					type:
+						(params.type as "concept" | "howto" | "reference" | "decision" | "insight") ??
+						"concept",
+					related: params.related,
+				},
+				params.content,
+			);
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: notePath ? `✅ Note created: [[${notePath}]]` : "Failed to create note.",
+					},
+				],
+				details: { path: notePath },
+			};
+		},
+	});
 }
