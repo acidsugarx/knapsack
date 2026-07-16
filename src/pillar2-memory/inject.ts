@@ -1,22 +1,22 @@
 /**
- * Memory injection hook — prepends relevant project memories before each agent turn.
+ * Memory injection hook — searches and injects task-relevant memories before each agent turn.
  *
- * ## When it fires
+ * ## Relevance over recency
  *
- * `before_agent_start` — after user submits a prompt but before the agent loop begins.
- * This is the last chance to modify the system prompt before the LLM sees it.
+ * Instead of just showing recent memories (which may be irrelevant to the current
+ * task), this hook searches memory by keywords extracted from the user's prompt.
+ * This means:
  *
- * ## What it does
+ * - Working on "postgres" → sees memories about Postgres, not about Helm
+ * - Working on "compression" → sees gotchas about tree-sitter, not about SQLite
+ * - Global memories about Node 26 are shown when the task involves Node
  *
- * 1. Searches memory for entries relevant to the project
- * 2. Selects the most important recent memories (top 5 by importance × recency)
- * 3. Appends them to the system prompt as a "Knapsack Memory" section
- * 4. The model sees this context at the start of every turn
+ * ## Scoring
  *
- * ## Token budget
- *
- * The injected memory section is kept compact — at most ~500 tokens worth of
- * memories. This ensures the injection doesn't itself become a token problem.
+ * Memories are scored by:
+ * 1. Keyword match (memories containing prompt terms score higher)
+ * 2. Importance (critical gotchas score higher than preferences)
+ * 3. Recency (recently accessed memories get a boost)
  *
  * @module memory-inject
  */
@@ -26,60 +26,191 @@ import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore, MemoryEntry } from "../core/types";
 
 /**
- * Maximum number of memory entries to inject.
- * More than this and the injection cost outweighs the benefit.
+ * Maximum number of memory entries to inject per turn.
  */
 const MAX_INJECTED_MEMORIES = 5;
 
 /**
- * Inject relevant memories into the system prompt before the agent starts.
+ * Maximum search results to consider (we select top-N from these).
+ */
+const MAX_CANDIDATES = 15;
+
+/**
+ * Inject task-relevant memories into the system prompt.
  *
- * @param event - before_agent_start event with mutable systemPrompt
+ * Searches memory by keywords from the user's prompt, combines with recent
+ * project memories, scores by relevance × importance × recency.
+ *
+ * @param event - before_agent_start event (has prompt text)
  * @param db - Knapsack database handle
  * @param store - Knapsack runtime store
- * @returns Modified system prompt, or undefined if no memories to inject
+ * @returns Formatted memory block string, or undefined if no relevant memories
  */
 export function memoryInjectHook(
-	_event: BeforeAgentStartEvent,
+	event: BeforeAgentStartEvent,
 	db: KnapsackDB,
 	store: KnapsackStore,
 ): string | undefined {
-	// Get recent project memories
-	const memories = db.getRecentMemory(MAX_INJECTED_MEMORIES * 2, store.projectRoot ?? undefined);
+	// Extract search terms from the user's prompt
+	const terms = extractSearchTerms(event.prompt);
+	const project = store.projectRoot ?? undefined;
 
-	if (memories.length === 0) return;
+	// Collect candidates: search hits + recent project memories
+	const candidates = new Map<string, MemoryEntry>();
 
-	// Select top memories by importance × recency
-	const relevant = selectBestMemories(memories, MAX_INJECTED_MEMORIES);
+	// 1. Search memory with prompt keywords
+	if (terms.length > 0) {
+		for (const term of terms.slice(0, 3)) {
+			// Search each term, get up to 5 results per term
+			const results = db.searchMemory(term, 5);
+			for (const m of results) {
+				candidates.set(m.id, m);
+			}
+		}
+	}
+
+	// 2. Add recent project + global memories as fallback
+	const recent = db.getRecentMemory(MAX_CANDIDATES, project);
+	for (const m of recent) {
+		candidates.set(m.id, m);
+	}
+
+	if (candidates.size === 0) return;
+
+	// Score and select best
+	const relevant = selectBestMemories(
+		Array.from(candidates.values()),
+		MAX_INJECTED_MEMORIES,
+		terms,
+	);
 
 	if (relevant.length === 0) return;
 
-	// Format as a compact section
 	return formatMemoryBlock(relevant);
 }
 
 /**
- * Select the best memories by scoring importance × recency.
+ * Extract meaningful search terms from a user prompt.
  *
- * We want memories that are both important (high importance score)
- * AND recent (last accessed recently). The product gives a balance.
+ * Filters out common stop words, keeps nouns and technical terms.
+ * Returns up to 5 terms for search queries.
  *
- * @param memories - Candidate memories (pre-filtered by project scope)
+ * @param prompt - User's prompt text
+ * @returns Array of search terms (lowercase, unique)
+ */
+function extractSearchTerms(prompt: string): string[] {
+	if (!prompt?.trim()) return [];
+
+	const stopWords = new Set([
+		"the",
+		"a",
+		"an",
+		"is",
+		"are",
+		"was",
+		"were",
+		"be",
+		"been",
+		"i",
+		"me",
+		"my",
+		"we",
+		"our",
+		"you",
+		"your",
+		"he",
+		"she",
+		"it",
+		"this",
+		"that",
+		"these",
+		"those",
+		"to",
+		"of",
+		"in",
+		"for",
+		"on",
+		"with",
+		"at",
+		"by",
+		"from",
+		"as",
+		"into",
+		"about",
+		"like",
+		"and",
+		"but",
+		"or",
+		"not",
+		"no",
+		"so",
+		"if",
+		"then",
+		"than",
+		"can",
+		"will",
+		"just",
+		"now",
+		"also",
+		"very",
+		"too",
+		"only",
+		"please",
+		"need",
+		"want",
+		"would",
+		"could",
+		"should",
+		"do",
+		"does",
+		"how",
+		"what",
+		"when",
+		"where",
+		"which",
+		"who",
+		"why",
+	]);
+
+	// Split by non-word characters, filter stop words and short terms
+	const words = prompt
+		.toLowerCase()
+		.split(/[\s,.;:!?()[\]{}"'`@#$%^&*+=<>|\\/~-]+/)
+		.filter((w) => w.length >= 3 && !stopWords.has(w));
+
+	// Deduplicate, take first 5
+	return [...new Set(words)].slice(0, 5);
+}
+
+/**
+ * Select the best memories by scoring relevance × importance × recency.
+ *
+ * @param memories - Candidate memories (deduplicated)
  * @param limit - Maximum number to return
+ * @param terms - Search terms from user prompt (for relevance scoring)
  * @returns Top-scoring memories, sorted by score descending
  */
-function selectBestMemories(memories: MemoryEntry[], limit: number): MemoryEntry[] {
+function selectBestMemories(
+	memories: MemoryEntry[],
+	limit: number,
+	terms: string[],
+): MemoryEntry[] {
 	const now = Date.now();
 
 	const scored = memories.map((m) => {
-		// Recency: 1.0 for < 1 hour ago, decaying to 0.1 after 30 days
+		// Relevance: how many search terms appear in the memory content
+		const contentLower = m.content.toLowerCase();
+		const matchCount = terms.filter((t) => contentLower.includes(t)).length;
+		const relevanceScore = terms.length > 0 ? matchCount / Math.max(terms.length, 1) : 0.5; // No terms = neutral score
+
+		// Recency: 1.0 for < 1 hour, decays to 0.1 after 30 days
 		const ageMs = now - m.recency;
 		const recencyScore = Math.max(0.1, 1.0 - ageMs / (30 * 24 * 60 * 60 * 1000));
 
-		return {
-			memory: m,
-			score: m.importance * recencyScore,
-		};
+		// Composite: relevance × importance × recency
+		const score = relevanceScore * m.importance * recencyScore;
+
+		return { memory: m, score };
 	});
 
 	scored.sort((a, b) => b.score - a.score);
@@ -88,14 +219,6 @@ function selectBestMemories(memories: MemoryEntry[], limit: number): MemoryEntry
 
 /**
  * Format a list of memory entries as a compact system prompt section.
- *
- * The format is designed to be:
- * - Scannable by the LLM (emoji + type label + content)
- * - Token-efficient (no verbose framing)
- * - Non-intrusive (clearly separated from the main prompt)
- *
- * @param memories - Memory entries to format
- * @returns Markdown-formatted memory block
  */
 function formatMemoryBlock(memories: MemoryEntry[]): string {
 	const emoji: Record<string, string> = {
