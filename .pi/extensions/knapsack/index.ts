@@ -11,4 +11,4 @@
  * 3. Changes take effect immediately
  */
 
-export { default } from "../../src/index";
+export { default } from "../../../src/index";

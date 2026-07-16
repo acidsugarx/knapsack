@@ -254,17 +254,28 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		db = new sql.Database();
 	}
 
-	// Apply schema
+	// Apply schema — FTS5 may not be available in all sql.js builds
+	let hasFts5 = true;
 	for (const stmt of SCHEMA) {
-		db.run(stmt);
-	}
-
-	// FTS triggers — ignore if they fail (may already exist)
-	for (const stmt of FTS_TRIGGERS) {
 		try {
 			db.run(stmt);
-		} catch {
-			// Triggers may already exist
+		} catch (err) {
+			if (String(err).includes("fts5") || String(err).includes("no such module")) {
+				hasFts5 = false;
+			} else {
+				throw err;
+			}
+		}
+	}
+
+	// FTS triggers — only if FTS5 is available
+	if (hasFts5) {
+		for (const stmt of FTS_TRIGGERS) {
+			try {
+				db.run(stmt);
+			} catch {
+				// Triggers may already exist
+			}
 		}
 	}
 
@@ -325,6 +336,17 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		},
 
 		searchMemory(query, limit = 10, typeFilter) {
+			// Use LIKE search if FTS5 is not available
+			if (!hasFts5) {
+				const rows = execRows(
+					db,
+					`SELECT * FROM memory WHERE content LIKE ? ORDER BY importance DESC, recency DESC LIMIT ?`,
+					[`%${query}%`, limit],
+				);
+				const results = rows.map(rowToMemory);
+				return typeFilter ? results.filter((r) => typeFilter.includes(r.type)) : results;
+			}
+
 			const escaped = query.replace(/['"]/g, "").replace(/\s+/g, " AND ");
 			if (!escaped) return [];
 
