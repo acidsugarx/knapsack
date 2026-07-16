@@ -117,17 +117,19 @@ src/
 ├── pillar1-compression/      # Token reduction
 │   ├── plugin.ts             # StrategyRegistry + CompressionStrategy interface
 │   ├── default-registry.ts   # All built-in strategies registered here
-│   ├── hook.ts               # tool_result interceptor
+│   ├── hook.ts               # tool_result interceptor (compression + drift check)
 │   ├── detect.ts             # Content-based auto-routing
-│   ├── ccr.ts                # Compress-Cache-Retrieve (Obsidian vault)
-│   ├── thresholds.ts         # When to compress + env var overrides
+│   ├── ccr.ts                # Compress-Cache-Retrieve (~/.knapsack/cache/)
 │   └── strategies/           # bash, grep, find, code, json
 ├── pillar2-memory/           # Persistent memory
-│   ├── inject.ts             # before_agent_start — prompt keyword search + injection
+│   ├── inject.ts             # before_agent_start — keyword search + BM25 injection
 │   ├── observe.ts            # turn_end — auto-save gotchas on failures
 │   ├── compaction.ts         # session_before_compact — flush state to memory
-│   └── scoring.ts            # BM25 scoring for knapsack_search
-├── tools/                    # 7 custom tools for the LLM
+│   ├── scoring.ts            # Hybrid BM25 + embeddings scoring
+│   ├── embeddings.ts         # Optional @xenova/transformers (384-dim MiniLM)
+│   ├── drift.ts              # Decision anchors + violation signal detection
+│   └── session-analysis.ts   # /knapsack-learn JSONL session parser
+├── tools/                    # 9 custom tools for the LLM
 ├── commands/                 # /knapsack-status, /knapsack-learn
 └── bridge/                   # Obsidian vault: discovery, search, notes
 ```
@@ -138,22 +140,30 @@ src/
 - **Plugin architecture for strategies.** New compression strategies implement
   `CompressionStrategy` and register via `createDefaultRegistry()`. Do not add switch statements
   in the hook — the registry handles routing.
+- **Content-based auto-routing.** The registry uses `detectContentType()` to route outputs.
+  No tool-name mapping needed — works with any pi tool.
 - **Idempotency required.** Every write operation must be safe to retry. Memory uses UPSERT by
   `content_hash`. Compression uses `INSERT OR IGNORE` by `original_hash`. CCR checks file
-  existence before writing.
-- **sql.js (WASM) only.** No native SQLite bindings. FTS5 may not be available — always provide
-  a LIKE fallback.
-- **Vault root for notes.** `knapsack_note` writes to vault root, not subdirectories. No
-  frontmatter. Wikilinks inline in content.
+  existence before writing. `writeNote()` checks content before appending.
+- **sql.js (WASM) only.** No native SQLite bindings. FTS5 may not be available — LIKE fallback.
+- **Embeddings are optional.** `@xenova/transformers` is an optionalDependency. `isAvailable()`
+  flag controls hybrid vs BM25-only scoring. Never hard-depend on embeddings.
+- **CCR cache in ~/.knapsack/cache/, not vault.** Vault is for human notes.
+  `knapsack_note` writes to vault root. No frontmatter. Wikilinks inline.
+- **Memory pruning.** On session_shutdown, entries older than 30 days with importance < 0.3
+  and access_count <= 1 are pruned.
+- **Unified search.** `knapsack_search` searches both memory DB and Obsidian vault.
+  No separate search paths for the model.
+- **DB saves are debounced.** 2s debounce, `saveNow()` on close. Not per-write.
 
 ## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KNAPSACK_HOME` | `~/.knapsack` | Database and config directory |
+| `KNAPSACK_HOME` | `~/.knapsack` | Database, CCR cache, and config directory |
 | `KNAPSACK_OBSIDIAN_VAULT` | auto-discovered | Explicit Obsidian vault path override |
-| `KNAPSACK_TOOL_MAP` | built-in | Custom tool→strategy mapping (`tool=strategy,...`) |
-| `KNAPSACK_THRESHOLDS` | built-in | Custom token thresholds (`tool:N,...`) |
+
+Embeddings: install `@xenova/transformers sharp` to enable. No env var — package presence is the toggle.
 
 ## Testing
 
