@@ -120,7 +120,7 @@ function parseEnvThresholds(env: string | undefined): Record<string, number> {
 		const [tool, threshold] = pair.split(":");
 		if (tool?.trim() && threshold?.trim()) {
 			const n = parseInt(threshold.trim(), 10);
-			if (!isNaN(n)) map[tool.trim()] = n;
+			if (!Number.isNaN(n)) map[tool.trim()] = n;
 		}
 	}
 	return map;
