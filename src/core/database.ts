@@ -291,6 +291,11 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		}
 	}
 
+	// Migrations — add columns to existing tables if missing
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN embedding TEXT");
+	} catch {}
+
 	/**
 	 * Save the database to disk.
 	 * Called after every write to ensure persistence.
