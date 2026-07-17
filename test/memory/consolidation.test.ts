@@ -69,4 +69,37 @@ describe("memory consolidation", () => {
 		expect(db.getAllMemories().length).toBe(2);
 		db.close();
 	});
+
+	it("batch consolidate is safe on empty and populated DBs", async () => {
+		const db = await createDB(join(tmpHome, "mem.db"));
+
+		// Empty DB: no-op, sane counts.
+		expect(db.consolidateMemories()).toEqual({ scanned: 0, merged: 0, remaining: 0 });
+
+		// Populate with three distinct entries across two types.
+		db.saveMemory({
+			content: "knapsack default cache directory is ~/.knapsack",
+			type: "fact",
+		});
+		db.saveMemory({
+			content: "Tree-sitter grammar wasm files ship inside the grammar npm package",
+			type: "gotcha",
+		});
+		db.saveMemory({
+			content: "Always use execFileSync with argument arrays, never execSync with interpolation",
+			type: "constraint",
+		});
+
+		const allCount = db.getAllMemories().length;
+		expect(allCount).toBe(3);
+
+		// Batch pass over distinct rows — finds nothing to merge, returns
+		// honest counts. Verifies the scan walks every row and deletes nothing.
+		const result = db.consolidateMemories();
+		expect(result.scanned).toBe(3);
+		expect(result.merged).toBe(0);
+		expect(result.remaining).toBe(3);
+		expect(db.getAllMemories().length).toBe(3);
+		db.close();
+	});
 });

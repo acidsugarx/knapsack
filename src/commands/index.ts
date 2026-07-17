@@ -117,6 +117,33 @@ export function registerCommands(
 			ctx.ui.notify(report, saved > 0 ? "info" : "info");
 		},
 	});
+
+	/**
+	 * /knapsack-consolidate — batch-merge duplicate memories.
+	 *
+	 * Pair-wise merge within each (type, project) group when Jaccard word
+	 * overlap >= 0.75. Surviving row keeps the longer content, bumped
+	 * importance, summed access_count. Duplicates are deleted.
+	 */
+	pi.registerCommand("knapsack-consolidate", {
+		description: "Batch-merge duplicate memories (older cleanup pass)",
+		handler: async (_args, ctx) => {
+			const db = getDB();
+			if (!db) {
+				ctx.ui.notify("Knapsack is not initialized.", "warning");
+				return;
+			}
+			const result = db.consolidateMemories();
+			const lines = [
+				"🎒 Memory consolidation",
+				"──────────────────────",
+				`Scanned:   ${result.scanned}`,
+				`Merged:    ${result.merged}`,
+				`Remaining: ${result.remaining}`,
+			];
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
 }
 
 /**

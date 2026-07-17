@@ -65,4 +65,41 @@ describe("compressDiff", () => {
 	it("returns null for non-diff input", () => {
 		expect(compressDiff("not a diff at all")).toBeNull();
 	});
+
+	it("drops low-relevance hunks when a file has more than MAX_HUNKS_PER_FILE", () => {
+		// Build a diff with 12 hunks in one file: 4 carry function/class/type
+		// declarations (priority hits), 8 carry only comment edits. After
+		// compression only 8 should remain, with the priority ones kept.
+		const lines: string[] = [
+			"diff --git a/foo.ts b/foo.ts",
+			"index abc..def 100644",
+			"--- a/foo.ts",
+			"+++ b/foo.ts",
+		];
+		// 8 comment-only hunks — low priority, low change density.
+		for (let i = 0; i < 8; i++) {
+			lines.push(`@@ -${100 + i * 10},3 +${100 + i * 10},3 @@`);
+			lines.push(` context line ${i}.0`);
+			lines.push(`-// old comment ${i}`);
+			lines.push(`+// new comment ${i}`);
+			lines.push(` context line ${i}.1`);
+		}
+		// 4 declaration hunks — priority hits.
+		for (let i = 0; i < 4; i++) {
+			lines.push(`@@ -${500 + i * 20},3 +${500 + i * 20},4 @@`);
+			lines.push(` context before decl ${i}`);
+			lines.push(`+export function newFunc_${i}(x: number): string { return String(x); }`);
+			lines.push(` context after decl ${i}`);
+		}
+		const src = lines.join("\n");
+
+		const result = compressDiff(src);
+		expect(result).not.toBeNull();
+		expect(result?.body).toContain("low-relevance hunks dropped");
+		// Priority declarations survive.
+		expect(result?.body).toContain("newFunc_0");
+		expect(result?.body).toContain("newFunc_3");
+		// Some comment hunks had to go (4 of them).
+		expect(result?.body).not.toContain("old comment 7");
+	});
 });

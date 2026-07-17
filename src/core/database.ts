@@ -265,6 +265,15 @@ export interface KnapsackDB {
 
 	pruneMemories(maxAge?: number, minImportance?: number): number;
 
+	/**
+	 * Batch-merge pre-existing duplicate memories. Greedy pair-wise match
+	 * within each (type, project) group with Jaccard word overlap above the
+	 * consolidation threshold. Longer content wins; importance and
+	 * access_count are merged into the surviving row; the duplicate is
+	 * deleted. Returns counts for reporting.
+	 */
+	consolidateMemories(): { scanned: number; merged: number; remaining: number };
+
 	close(): void;
 }
 
@@ -535,6 +544,81 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			);
 			save();
 			return rows.length;
+		},
+
+		consolidateMemories() {
+			const all = execRows(db, "SELECT * FROM memory").map(rowToMemory);
+			if (all.length === 0) return { scanned: 0, merged: 0, remaining: 0 };
+
+			// Group by (type, project) — consolidation never crosses these.
+			const groups = new Map<string, MemoryEntry[]>();
+			for (const e of all) {
+				const key = `${e.type}|${e.project ?? ""}`;
+				const bucket = groups.get(key);
+				if (bucket) bucket.push(e);
+				else groups.set(key, [e]);
+			}
+
+			let merged = 0;
+			const toDelete = new Set<string>();
+			const normCache = new Map<string, Set<string>>();
+			const normOf = (e: MemoryEntry): Set<string> => {
+				const cached = normCache.get(e.id);
+				if (cached) return cached;
+				const value = normalizeForSimilarity(e.content);
+				normCache.set(e.id, value);
+				return value;
+			};
+
+			for (const group of groups.values()) {
+				const processed = new Set<string>();
+				for (let i = 0; i < group.length; i++) {
+					const base = group[i];
+					if (!base || processed.has(base.id) || toDelete.has(base.id)) continue;
+					processed.add(base.id);
+
+					let bestMatch: MemoryEntry | undefined;
+					let bestScore = 0;
+					for (let j = i + 1; j < group.length; j++) {
+						const cand = group[j];
+						if (!cand || processed.has(cand.id) || toDelete.has(cand.id)) continue;
+						const score = jaccard(normOf(base), normOf(cand));
+						if (score >= CONSOLIDATION_THRESHOLD && score > bestScore) {
+							bestScore = score;
+							bestMatch = cand;
+						}
+					}
+
+					if (bestMatch) {
+						const mergedContent =
+							bestMatch.content.length > base.content.length ? bestMatch.content : base.content;
+						const mergedImportance = Math.min(
+							1,
+							Math.max(base.importance, bestMatch.importance) + CONSOLIDATION_IMPORTANCE_BOOST,
+						);
+						const mergedAccess = base.accessCount + bestMatch.accessCount;
+						const now = new Date().toISOString();
+						db.run(
+							"UPDATE memory SET content = ?, importance = ?, access_count = ?, updated_at = ? WHERE id = ?",
+							[mergedContent, mergedImportance, mergedAccess, now, base.id],
+						);
+						toDelete.add(bestMatch.id);
+						processed.add(bestMatch.id);
+						merged++;
+					}
+				}
+			}
+
+			for (const id of toDelete) {
+				db.run("DELETE FROM memory WHERE id = ?", [id]);
+			}
+			save();
+
+			return {
+				scanned: all.length,
+				merged,
+				remaining: all.length - toDelete.size,
+			};
 		},
 
 		recordCompression(input) {

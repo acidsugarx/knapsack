@@ -29,11 +29,21 @@ import type { CompressionResult } from "../../core/types";
 const CONTEXT_LINES = 2;
 /** Below this many input lines, don't bother — compression isn't worth the noise. */
 const MIN_LINES = 40;
+/** Max hunks kept per file when scoring fires. Hunks above this count get ranked. */
+const MAX_HUNKS_PER_FILE = 8;
 
 const FILE_HEADER_RE =
 	/^(?:diff --git |index |--- |\+\+\+ |new file |deleted file |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |Binary files )/;
 const HUNK_HEADER_RE = /^@@/;
 const FILE_OR_HUNK_RE = /^(?:diff --git |@@)/;
+
+/**
+ * Change-line content that signals a structurally important edit — function,
+ * class, type, interface, struct, trait, export, import. Matches many
+ * languages so we don't need per-lang grammars here.
+ */
+const PRIORITY_DECL_RE =
+	/^\s*(?:export\s+)?(?:default\s+)?(?:public|private|protected|static|async|abstract|final|declare\s+)?\s*(?:function|class|interface|type|enum|const|let|var|def|fn|struct|enum|impl|trait|namespace|module|import|from)\s+/;
 
 /**
  * Returns true if the output looks like a unified git diff.
@@ -62,36 +72,40 @@ export function compressDiff(source: string): CompressionResult | null {
 	const lines = source.split("\n");
 	if (lines.length < MIN_LINES) return null;
 
+	const files = parseDiffFiles(lines);
+
 	const out: string[] = [];
-	let i = 0;
 	let totalContextTrimmed = 0;
-	let hunkCount = 0;
+	let hunksKept = 0;
+	let hunksDropped = 0;
 
-	while (i < lines.length) {
-		const line = lines[i];
+	for (const file of files) {
+		out.push(...file.headers);
 
-		// Hunk header → keep, then process the hunk body as a unit.
-		if (HUNK_HEADER_RE.test(line)) {
-			out.push(line);
-			i++;
-			hunkCount++;
-			const hunkStart = i;
-			while (i < lines.length && !FILE_OR_HUNK_RE.test(lines[i])) {
-				i++;
-			}
-			const hunkLines = lines.slice(hunkStart, i);
-			const trimmed = trimHunk(hunkLines);
-			out.push(...trimmed.lines);
-			totalContextTrimmed += trimmed.contextTrimmed;
-			continue;
+		// Score every hunk so we can rank when the cap fires.
+		for (const h of file.hunks) h.score = scoreHunk(h.body);
+
+		let keepers = file.hunks;
+		if (file.hunks.length > MAX_HUNKS_PER_FILE) {
+			// Keep the highest-scoring MAX_HUNKS_PER_FILE hunks, preserve their
+			// original document order so the diff still reads top-to-bottom.
+			const ranked = [...file.hunks].sort((a, b) => b.score - a.score);
+			const keepIds = new Set(ranked.slice(0, MAX_HUNKS_PER_FILE));
+			keepers = file.hunks.filter((h) => keepIds.has(h));
+			hunksDropped += file.hunks.length - keepers.length;
 		}
 
-		// File headers and any other top-level lines pass through.
-		out.push(line);
-		i++;
+		for (const h of keepers) {
+			out.push(h.header);
+			const trimmed = trimHunk(h.body);
+			out.push(...trimmed.lines);
+			totalContextTrimmed += trimmed.contextTrimmed;
+		}
+		hunksKept += keepers.length;
 	}
 
-	const header = `📦 diff trimmed: ${hunkCount} hunks · ${totalContextTrimmed} context lines dropped\n\n`;
+	const dropLine = hunksDropped > 0 ? ` · ${hunksDropped} low-relevance hunks dropped` : "";
+	const header = `📦 diff trimmed: ${hunksKept} hunks kept · ${totalContextTrimmed} context lines dropped${dropLine}\n\n`;
 	const body = header + out.join("\n");
 	const originalTokens = estimateTokens(source);
 	const compressedTokens = estimateTokens(body);
@@ -107,6 +121,75 @@ export function compressDiff(source: string): CompressionResult | null {
 		savingsPercent: savingsPercent(originalTokens, compressedTokens),
 		strategy: "diff",
 	};
+}
+
+interface DiffHunk {
+	/** `@@ -a,b +c,d @@` header line. */
+	header: string;
+	/** Body lines after the header (until the next file/hunk header). */
+	body: string[];
+	/** Relevance score in [0, 1] — higher = more worth keeping. */
+	score: number;
+}
+
+interface DiffFile {
+	/** Pre-hunk header lines: `diff --git`, `index`, `+++`, `---`, … */
+	headers: string[];
+	hunks: DiffHunk[];
+}
+
+/** Parse a unified diff into per-file buckets with their hunks. */
+function parseDiffFiles(lines: string[]): DiffFile[] {
+	const files: DiffFile[] = [];
+	let current: DiffFile | null = null;
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i] ?? "";
+		if (line.startsWith("diff --git ")) {
+			current = { headers: [], hunks: [] };
+			files.push(current);
+		}
+		if (HUNK_HEADER_RE.test(line)) {
+			if (!current) {
+				// Hunk outside any file — synthesise a container so we still emit it.
+				current = { headers: [], hunks: [] };
+				files.push(current);
+			}
+			const header = line;
+			const body: string[] = [];
+			i++;
+			while (i < lines.length && !FILE_OR_HUNK_RE.test(lines[i] ?? "")) {
+				body.push(lines[i] ?? "");
+				i++;
+			}
+			current.hunks.push({ header, body, score: 0 });
+			continue;
+		}
+		if (current) current.headers.push(line);
+		i++;
+	}
+	return files;
+}
+
+/**
+ * Score a hunk by change density plus a boost for priority declaration lines
+ * (functions, classes, types, exports, imports). Hunks that only shuffle
+ * whitespace or comments score near zero and are dropped first when the
+ * per-file cap fires.
+ */
+function scoreHunk(body: string[]): number {
+	let changeCount = 0;
+	let priorityHits = 0;
+	for (const line of body) {
+		const first = line[0];
+		if (first !== "+" && first !== "-") continue;
+		changeCount++;
+		const content = line.slice(1);
+		if (PRIORITY_DECL_RE.test(content)) priorityHits++;
+	}
+	const density = Math.min(0.3, changeCount * 0.03);
+	const priorityBoost = priorityHits > 0 ? Math.min(0.4, priorityHits * 0.15) : 0;
+	return Math.min(1.0, density + priorityBoost);
 }
 
 /** Keep change lines and a context window, collapse the rest to one marker. */
