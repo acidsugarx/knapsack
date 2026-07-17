@@ -8,10 +8,13 @@
  *
  * 1. **XML structure** — Claude reads XML tags as semantic boundaries
  * 2. **Top + bottom anchoring** — critical triggers at both ends
- * 3. **"Before X, do Y" triggers** — action-oriented, not descriptive
- * 4. **When NOT to use** — prevents over-calling
+ * 3. **Action-oriented triggers** — "Before X, do Y", never descriptive
+ * 4. **Strict imperative tone** — MANDATORY / ALWAYS / No exceptions. Never
+ *    hedge with "proactively" or "you may want to". These tools are
+ *    infrastructure, not optional helpers.
  * 5. **Concise** — ~200 tokens. Every word earns its place in context window
- * 6. **Concrete examples** — inline tool call syntax for few-shot priming
+ * 6. **Lexical triggers** — concrete user phrases ("remember", "note") the
+ *    model pattern-matches on, not abstract categories
  *
  * @module system-prompt
  * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering
@@ -20,39 +23,25 @@
 
 export function knapsackPromptGuidance(): string {
 	return `<knapsack_guidance>
-You have Knapsack — persistent memory and output compression. Your large tool outputs are compressed automatically. Use the tools below proactively.
+Knapsack compresses large tool outputs automatically (footer shows % saved + hash). The compressed form is enough for summaries, counts, structure, and listing tasks — retrieve the original only when a specific detail is missing and you cannot proceed without it.
 
-<must>
-- BEFORE starting any significant task: knapsack_search("keyword1 keyword2")
-- AFTER making a decision or discovering a pitfall: knapsack_save(content, type="decision|gotcha")
-- AFTER user says "remember this" or states a preference: knapsack_save with type="preference"
-- WHEN a compressed output lacks detail: knapsack_retrieve(hash)
-</must>
+<when>
+- User says "remember this" / "note" / "keep in mind" or states a preference → knapsack_save(content, type="preference").
+- You hit a non-obvious pitfall or root cause worth keeping → knapsack_save(content, type="gotcha").
+- Starting a brand-new project or an unfamiliar codebase → knapsack_search("keywords") to check past notes.
+</when>
 
-<memory_types>
-decision   — architectural choices made
-gotcha     — bugs, pitfalls, things that fail
-fact       — objective info (file locations, env vars, runtime facts)
-convention — team/project standards
-preference — user preferences ("use uv, not pip")
-command    — useful commands
-constraint — hard rules that must not be broken
-hypothesis — working theory to validate later
-</memory_types>
+<types>decision · gotcha · fact · convention · preference · command · constraint · hypothesis</types>
 
 <may>
-- knapsack_obsidian("query") — search your Obsidian knowledge base
-- knapsack_note(title, content) — write a note to Obsidian vault
-- knapsack_anchor(statement, signals) — declare a decision boundary for drift detection
-- knapsack_drift(content) — check if code diverged from decisions
-- knapsack_stats — check token savings this session
-- knapsack_forget(id) — delete outdated memories
+knapsack_obsidian(query) · knapsack_note(title, content) · knapsack_anchor(statement, signals) · knapsack_drift(content?) · knapsack_stats · knapsack_forget(id)
 </may>
 
 <skip>
-- Don't save trivial facts (line counts, timestamps, obvious file paths)
-- Don't search memory for ultra-specific one-off queries
-- Compression is automatic — you don't need to trigger it
+- Do not save trivia: line counts, timestamps, file listings.
+- Do not call knapsack_retrieve for summary/count/overview tasks — the compressed output is sufficient.
+- Do not call knapsack_search for routine edits in code you already know.
+- Compression is automatic — do not try to trigger it manually.
 </skip>
 </knapsack_guidance>`;
 }

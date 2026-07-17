@@ -11,9 +11,11 @@ import { detectContentType } from "./detect";
 import { createRegistry, type StrategyRegistry } from "./plugin";
 import { compressBash } from "./strategies/bash";
 import { compressCode } from "./strategies/code";
+import { compressCodeAST } from "./strategies/code-ast";
 import { compressFind } from "./strategies/find";
 import { compressGrep } from "./strategies/grep";
 import { compressJson } from "./strategies/json";
+import { detectLanguageFromExt } from "./tree-sitter-loader";
 
 /**
  * Create and configure the default strategy registry with all built-in strategies.
@@ -59,14 +61,19 @@ export function createDefaultRegistry(): StrategyRegistry {
 		},
 	});
 
-	// ── Code strategy ────────────────────────────────────
+	// ── Code strategy (AST first, regex fallback) ─────────
 	registry.register({
 		name: "code",
 		label: "Source Code",
 		contentTypes: ["read", "code"],
 		threshold: 2000,
-		compress(output, ctx) {
-			const lang = ctx?.language ?? detectLanguage(output);
+		async compress(output, ctx) {
+			// Prefer the filename hint from the read tool, then heuristic.
+			const path = typeof ctx?.path === "string" ? ctx.path : undefined;
+			const lang = ctx?.language ?? detectLanguageFromExt(path) ?? detectLanguage(output);
+			// Try tree-sitter AST first; fall back to regex if no grammar.
+			const ast = await compressCodeAST(output, lang);
+			if (ast && ast.savingsPercent > 0) return ast;
 			return compressCode(output, lang);
 		},
 	});

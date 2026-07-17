@@ -61,13 +61,17 @@ export interface CompressionStrategy {
 	/** Minimum token count before this strategy activates */
 	threshold: number;
 	/**
-	 * Compress tool output.
+	 * Compress tool output. May be async if the strategy needs to load
+	 * resources (e.g. tree-sitter grammars).
 	 *
 	 * @param output - Raw tool output text
 	 * @param context - Optional metadata about the output (tool name, etc.)
 	 * @returns Compression result or null if output should pass through
 	 */
-	compress(output: string, context?: CompressionContext): CompressionResult | null;
+	compress(
+		output: string,
+		context?: CompressionContext,
+	): CompressionResult | null | Promise<CompressionResult | null>;
 }
 
 /**
@@ -80,6 +84,8 @@ export interface CompressionContext {
 	language?: string;
 	/** Exit code for bash output */
 	exitCode?: number;
+	/** File path the tool operated on (read/edit/write) — used for language detection */
+	path?: string;
 }
 
 // ── Content detector interface ──────────────────────────
@@ -134,9 +140,10 @@ export interface StrategyRegistry {
 	list(): string[];
 	/**
 	 * Compress output using the best matching strategy.
+	 * Async because strategies may load resources (e.g. tree-sitter grammars).
 	 * Returns null if no strategy applies or output is below threshold.
 	 */
-	compress(output: string, toolName?: string): CompressionResult | null;
+	compress(output: string, context?: CompressionContext): Promise<CompressionResult | null>;
 }
 
 // ── Factory ─────────────────────────────────────────────
@@ -178,7 +185,8 @@ export function createRegistry(): StrategyRegistry {
 			return Array.from(strategies.keys());
 		},
 
-		compress(output, toolName) {
+		async compress(output, context) {
+			const toolName = context?.toolName;
 			if (!output.trim()) return null;
 
 			const outputTokens = estimateTokens(output);
@@ -188,7 +196,7 @@ export function createRegistry(): StrategyRegistry {
 				if (detector.detect(output)) {
 					const strategy = strategies.get(detector.name);
 					if (strategy && outputTokens >= strategy.threshold) {
-						const result = strategy.compress(output, { toolName });
+						const result = await strategy.compress(output, context);
 						if (result && result.savingsPercent > 0) return result;
 					}
 				}
@@ -199,7 +207,7 @@ export function createRegistry(): StrategyRegistry {
 			if (strategyName) {
 				const strategy = strategies.get(strategyName);
 				if (strategy && outputTokens >= strategy.threshold) {
-					const result = strategy.compress(output, { toolName });
+					const result = await strategy.compress(output, context);
 					if (result && result.savingsPercent > 0) return result;
 				}
 			}

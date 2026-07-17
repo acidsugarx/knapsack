@@ -42,14 +42,10 @@ export function registerTools(
 		name: "knapsack_retrieve",
 		label: "Knapsack Retrieve",
 		description:
-			"Retrieve the full original output of a previously compressed tool result. " +
-			"Use this when you need more detail than the compressed version provides. " +
-			"The hash comes from the compression footer in the tool output.",
-		promptSnippet: "Retrieve full original of a compressed tool output by its hash",
-		promptGuidelines: [
-			"Call knapsack_retrieve when the compressed output doesn't have enough detail to make a decision. " +
-				"The hash is shown in the compression footer of any compressed tool output.",
-		],
+			"Retrieve the full original of a previously compressed tool output, by its hash. " +
+			"Call ONLY when the compressed output is missing information critical to your next step — " +
+			"for summaries, counts, structure overviews, and listings the compressed output is sufficient. " +
+			"Most tasks do not need this.",
 		parameters: Type.Object({
 			hash: Type.String({
 				description: "Content hash from the compression footer (e.g., a1b2c3d4e5f6)",
@@ -103,11 +99,6 @@ export function registerTools(
 			"Search Knapsack's persistent memory using BM25 keyword scoring (token overlap + IDF). " +
 			"Matches by shared terms - 'postgres pool' finds entries about Postgres connection pooling. " +
 			"Results ranked by relevance × importance × recency.",
-		promptSnippet: "Search persistent memory (BM25 — use natural keywords)",
-		promptGuidelines: [
-			"Call knapsack_search at the start of a new task to check for relevant memories. " +
-				"Search for the topic, technology, file name, or error message you're working with.",
-		],
 		parameters: Type.Object({
 			query: Type.String({
 				description: "What to search for (topic, technology, error message, etc.)",
@@ -201,12 +192,6 @@ export function registerTools(
 			"Save a fact, decision, gotcha, convention, or preference to Knapsack's persistent memory. " +
 			"This memory will be available in future sessions. Use after making important decisions, " +
 			"discovering gotchas, or when the user tells you to remember something.",
-		promptSnippet: "Save a fact, decision, gotcha, or preference to persistent memory",
-		promptGuidelines: [
-			"Call knapsack_save after making an important decision, discovering a gotcha, or when the user says 'remember this'. " +
-				"Choose the right type: decision for architectural choices, gotcha for pitfalls, convention for team standards, " +
-				"preference for user preferences, fact for objective information.",
-		],
 		parameters: Type.Object({
 			content: Type.String({ description: "What to remember (be specific and concise)" }),
 			type: Type.String({
@@ -312,10 +297,6 @@ export function registerTools(
 		label: "Knapsack Stats",
 		description:
 			"Show Knapsack compression and memory statistics — tokens saved, compressions performed, memory entries stored.",
-		promptSnippet: "Show compression and memory statistics",
-		promptGuidelines: [
-			"Call knapsack_stats when the user asks about token savings, compression stats, or memory usage.",
-		],
 		parameters: Type.Object({}),
 		async execute(): Promise<any> {
 			const db = getDB();
@@ -356,10 +337,6 @@ export function registerTools(
 		name: "knapsack_forget",
 		label: "Knapsack Forget",
 		description: "Delete a memory entry by its ID. Use when a memory is outdated or incorrect.",
-		promptSnippet: "Delete a memory entry by ID",
-		promptGuidelines: [
-			"Call knapsack_forget when a previously saved memory is no longer relevant or was incorrect.",
-		],
 		parameters: Type.Object({
 			id: Type.String({ description: "Memory entry ID to delete" }),
 		}),
@@ -393,11 +370,6 @@ export function registerTools(
 			"Search across your Obsidian vault for relevant notes. " +
 			"Use this to tap into your personal knowledge base — notes, research, " +
 			"decisions, and documentation stored in Obsidian.",
-		promptSnippet: "Search Obsidian vault for relevant notes",
-		promptGuidelines: [
-			"Call knapsack_obsidian to search your Obsidian knowledge base for relevant information " +
-				"before making decisions. This connects your agent to your second brain.",
-		],
 		parameters: Type.Object({
 			query: Type.String({ description: "Search query for Obsidian vault" }),
 			limit: Type.Optional(Type.Number({ default: 20, description: "Max results (default: 20)" })),
@@ -465,7 +437,6 @@ export function registerTools(
 		description:
 			"Write or append to an Obsidian note. Notes live in vault root, no frontmatter. " +
 			"Use [[wikilinks]] inline for connections. If note exists, content is appended.",
-		promptSnippet: "Write or update a note in Obsidian vault",
 		promptGuidelines: [
 			"Use knapsack_note to save things you learn. " +
 				"Write [[wikilinks]] inline to connect ideas. Keep notes atomic.",
@@ -508,11 +479,6 @@ export function registerTools(
 			"Declare a decision anchor with violation signals. Knapsack will monitor " +
 			"future tool outputs and flag drift if the signals appear. " +
 			"Example: statement='Use sql.js not better-sqlite3' signals=['better-sqlite3','node-gyp'].",
-		promptSnippet: "Declare a decision anchor for drift detection",
-		promptGuidelines: [
-			"Use knapsack_anchor when a decision has a clear 'do not do X' boundary. " +
-				"The violation signals are keywords that indicate the decision was violated.",
-		],
 		parameters: Type.Object({
 			statement: Type.String({
 				description: "The decision statement (e.g., 'Use sql.js, not better-sqlite3')",
@@ -560,8 +526,6 @@ export function registerTools(
 		description:
 			"Check for decision drift — scans recent tool outputs for violation signals " +
 			"from declared anchors. Returns list of anchors with matched signals.",
-		promptSnippet: "Check for decision drift on declared anchors",
-		promptGuidelines: ["Call knapsack_drift to check if code reality has diverged from decisions."],
 		parameters: Type.Object({
 			content: Type.Optional(
 				Type.String({

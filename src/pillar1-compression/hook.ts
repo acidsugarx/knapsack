@@ -52,13 +52,14 @@ export async function compressionHook(
 	registry: StrategyRegistry,
 ): Promise<{ content: Array<{ type: "text"; text: string }> } | undefined> {
 	const { toolName } = event;
+	const path = typeof event.input?.path === "string" ? event.input.path : undefined;
 
 	// Extract text content from the event
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
 
 	// Compress via registry (auto-routing by content, fallback by tool name)
-	const result = registry.compress(contentText, toolName);
+	const result = await registry.compress(contentText, { toolName, path });
 	if (!result) return;
 
 	// Cache original locally (CCR) — ~/.knapsack/cache, not vault
@@ -89,7 +90,9 @@ export async function compressionHook(
 		driftDetections.length > 0
 			? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
 			: "";
-	const footer = `\n\n📦 ${result.savingsPercent}% tokens saved (${result.originalTokens}→${result.compressedTokens})${driftHint} · \`knapsack_retrieve("${result.hash}")\` for full output`;
+	const footer = `
+
+📦 ${result.savingsPercent}% smaller · hash ${result.hash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
 
 	return {
 		content: [
