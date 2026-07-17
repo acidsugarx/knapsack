@@ -12,6 +12,7 @@ import { createRegistry, type StrategyRegistry } from "./plugin";
 import { compressBash } from "./strategies/bash";
 import { compressCode } from "./strategies/code";
 import { compressCodeAST } from "./strategies/code-ast";
+import { compressDiff } from "./strategies/diff";
 import { compressFind } from "./strategies/find";
 import { compressGrep } from "./strategies/grep";
 import { compressJson } from "./strategies/json";
@@ -61,6 +62,17 @@ export function createDefaultRegistry(): StrategyRegistry {
 		},
 	});
 
+	// ── Diff strategy ──────────────────────────────────────
+	registry.register({
+		name: "diff",
+		label: "Git Diff",
+		contentTypes: ["diff"],
+		threshold: 1000,
+		compress(output) {
+			return compressDiff(output);
+		},
+	});
+
 	// ── Code strategy (AST first, regex fallback) ─────────
 	registry.register({
 		name: "code",
@@ -90,7 +102,7 @@ export function createDefaultRegistry(): StrategyRegistry {
 	});
 
 	// ── Unified content detector (all routing via detectContentType) ──
-	for (const type of ["json", "grep", "bash", "find"] as const) {
+	for (const type of ["json", "diff", "grep", "bash", "find"] as const) {
 		registry.registerDetector({
 			name: type,
 			detect(output) {

@@ -36,10 +36,21 @@ describe("compressBash", () => {
 		expect(result.originalTokens).toBe(0);
 	});
 
-	it("deduplicates repeated lines", () => {
+	it("collapses repeated lines into a template run", () => {
 		const output = Array(50).fill("[ERROR] Connection refused").join("\n");
 		const result = compressBash(output, "", 1);
-		expect(result.body).toContain("×50");
+		expect(result.body).toContain("[50x]");
+		expect(result.body).toContain("TEMPLATES");
+	});
+
+	it("collapses log templates with varying IDs (Drain-style)", () => {
+		// Same template, different job IDs — pre-template dedup missed this entirely.
+		const lines: string[] = [];
+		for (let i = 0; i < 50; i++) lines.push(`INFO worker-${i} processing job-${i * 13 + 7}`);
+		const result = compressBash(lines.join("\n"), "", 0);
+		expect(result.body).toContain("[50x]");
+		expect(result.body).toContain("INFO worker-");
+		expect(result.savingsPercent).toBeGreaterThan(80);
 	});
 });
 

@@ -5,10 +5,11 @@
  * ## Detection order (first match wins)
  *
  * 1. JSON — starts with `{` and parses, or starts with `[` and looks like JSON array
- * 2. Grep — most lines match `file:line:content` with realistic paths
- * 3. Bash — has log-level markers ([ERROR], [WARN]), exit codes, or stack traces
- * 4. Find — most lines look like file paths without grep-style line numbers
- * 5. null — unrecognized, pass through
+ * 2. Diff — has `diff --git` (or `+++`/`---`) plus `@@` hunk headers
+ * 3. Grep — most lines match `file:line:content` with realistic paths
+ * 4. Bash — has log-level markers ([ERROR], [WARN]), exit codes, or stack traces
+ * 5. Find — most lines look like file paths without grep-style line numbers
+ * 6. null — unrecognized, pass through
  *
  * ## Fallback
  *
@@ -50,6 +51,11 @@ export function detectContentType(output: string): string | null {
 			// Clean [ without log markers — likely JSON array
 			if (!lines.some((l) => isLogLine(l))) return "json";
 		}
+	}
+
+	// ── Diff: git diff header + hunk headers ─────────────
+	if (isDiffOutput(lines)) {
+		return "diff";
 	}
 
 	// ── Grep: file:line:content on 60%+ of lines ──────────
@@ -112,4 +118,21 @@ function isFindLine(line: string): boolean {
  */
 function isLogLine(line: string): boolean {
 	return /^\[(ERROR|WARN|INFO|DEBUG|FATAL|TRACE)\]/i.test(line);
+}
+
+/**
+ * Check if the output is a unified git diff.
+ *
+ * True when both a file header (`diff --git`, `+++`, `---`, etc.) and at
+ * least one `@@` hunk header appear in the sampled lines.
+ */
+function isDiffOutput(lines: string[]): boolean {
+	let hasFile = false;
+	let hasHunk = false;
+	for (const line of lines) {
+		if (!hasFile && /^(?:diff --git |index |--- |\+\+\+ )/.test(line)) hasFile = true;
+		else if (!hasHunk && /^@@/.test(line)) hasHunk = true;
+		if (hasFile && hasHunk) return true;
+	}
+	return false;
 }

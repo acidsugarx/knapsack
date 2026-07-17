@@ -21,6 +21,66 @@ function deduplicateLines(lines: string[]): { line: string; count: number }[] {
 		.sort((a, b) => b.count - a.count);
 }
 
+// ── Log template mining (Drain-inspired) ────────────────
+//
+// Replaces digits / hex / uuids / emails with placeholders, then collapses
+// consecutive runs of identical templates into one line + count. Inspired
+// by Headroom's log_compressor and Drain. Lossless: the model still sees the
+// shape and frequency of repeated log spam without 800 near-identical lines.
+
+const TEMPLATE_NORM_RE = [
+	// uuids
+	[/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<uuid>"],
+	// long hex (commit hashes, hashes)
+	[/\b[0-9a-f]{16,}\b/gi, "<hex>"],
+	// emails
+	[/\S+@\S+\.\S+/g, "<email>"],
+	// ip addresses
+	[/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<ip>"],
+	// numbers (last so uuid/hex/ip already replaced)
+	[/\b\d+\b/g, "N"],
+] as const;
+
+function normalizeTemplate(line: string): string {
+	let out = line;
+	for (const [re, replacement] of TEMPLATE_NORM_RE) {
+		out = out.replace(re, replacement);
+	}
+	return out;
+}
+
+/** Minimum consecutive identical-template lines to count as a "template run". */
+const TEMPLATE_RUN_MIN = 3;
+
+interface TemplateRun {
+	/** First line verbatim — model sees one concrete example. */
+	sample: string;
+	count: number;
+}
+
+/**
+ * Walk lines, group consecutive same-template runs, return templates and
+ * the remaining (non-template) lines in original order.
+ */
+function extractTemplates(lines: string[]): { templates: TemplateRun[]; rest: string[] } {
+	const templates: TemplateRun[] = [];
+	const rest: string[] = [];
+	let i = 0;
+	while (i < lines.length) {
+		const norm = normalizeTemplate(lines[i] ?? "");
+		let j = i + 1;
+		while (j < lines.length && normalizeTemplate(lines[j] ?? "") === norm) j++;
+		const count = j - i;
+		if (count >= TEMPLATE_RUN_MIN && norm.trim()) {
+			templates.push({ sample: lines[i] ?? "", count });
+		} else {
+			for (let k = i; k < j; k++) rest.push(lines[k] ?? "");
+		}
+		i = j;
+	}
+	return { templates, rest };
+}
+
 // ── Severity detection ─────────────────────────────────
 
 function classifyLine(line: string): "error" | "warning" | "info" | "other" {
@@ -74,7 +134,11 @@ export function compressBash(
 
 	const combined = stderr ? `${stderr}\n${stdout}` : stdout;
 	const clean = stripAnsi(combined);
-	const lines = clean.split("\n");
+	const allLines = clean.split("\n");
+
+	// Pull template runs out first so repetitive INFO/progress spam doesn't
+	// flood the INFO section or dilute the tail.
+	const { templates, rest: lines } = extractTemplates(allLines);
 
 	const errors: string[] = [];
 	const warnings: string[] = [];
@@ -99,6 +163,16 @@ export function compressBash(
 	}
 
 	const sections: CompressedSection[] = [];
+
+	// Templates — repetitive log patterns collapsed to one line + count
+	if (templates.length > 0) {
+		const shown = templates.slice(0, 20);
+		const suffix = templates.length > 20 ? `\n(+${templates.length - 20} more template types)` : "";
+		sections.push({
+			title: "TEMPLATES",
+			content: shown.map((t) => `[${t.count}x] ${t.sample}`).join("\n") + suffix,
+		});
+	}
 
 	// Errors — always show, capped
 	if (errors.length > 0) {
