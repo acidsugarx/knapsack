@@ -75,10 +75,13 @@ export async function compressionHook(
 
 	if (!result) {
 		// No compression applied. Return only if we redacted something;
-		// otherwise leave the tool_result untouched.
+		// otherwise leave the tool_result untouched. Restore any tag
+		// placeholders so they don't leak into the model's view.
 		if (secrets.length === 0) return;
+		let body = redactedSource;
+		if (tags.size > 0) body = restoreTags(body, tags);
 		return {
-			content: [{ type: "text", text: redactedSource }],
+			content: [{ type: "text", text: body }],
 		};
 	}
 

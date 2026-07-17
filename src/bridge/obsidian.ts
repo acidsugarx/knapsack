@@ -23,7 +23,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 
 /**
  * Obsidian vault configuration structure from obsidian.json.
@@ -219,10 +219,14 @@ export function searchVaultWithFrontmatter(
 		if (!m) continue;
 		const [, file, lineNum, content] = m;
 		const filePath = file ?? "";
+		// Trust boundary: rg output is influenced by the user query, so the
+		// path must stay inside the vault. Reject anything that escapes via
+		// '..' or resolves to an absolute path outside the vault root.
+		const rel = relative(vaultPath, filePath);
+		if (isAbsolute(rel) || rel.startsWith("..")) continue;
 		let frontmatter = fmCache.get(filePath);
 		if (frontmatter === undefined && filePath.endsWith(".md")) {
 			try {
-				const { readFileSync } = require("node:fs");
 				const text = readFileSync(filePath, "utf8");
 				frontmatter = parseFrontmatter(text);
 			} catch {

@@ -35,6 +35,11 @@ const PROTECTED_TAGS = [
 	"function_call",
 	"instructions",
 	"context",
+	// Claude Code / Cline-style structured tags
+	"error",
+	"result",
+	"details",
+	"environment_details",
 ] as const;
 
 const PLACEHOLDER_PREFIX = "__KNAPSACK_TAG_";
