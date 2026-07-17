@@ -1,0 +1,1 @@
+Explore the kernel/sched/ directory. Step 1: use bash to run "ls -la kernel/sched/". Step 2: use bash to run "find kernel/sched -name '*.c'". Step 3: report a 3-sentence summary of what this subsystem contains and its overall structure. Do not paste raw output.

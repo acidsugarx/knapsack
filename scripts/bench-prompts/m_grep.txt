@@ -1,0 +1,2 @@
+Run bash with this exact command: grep -rn "EXPORT_SYMBOL" --include="*.c" kernel/ | head -300
+Do NOT add other pipes. Then in 3 sentences summarize what kinds of symbols the kernel exports and why.

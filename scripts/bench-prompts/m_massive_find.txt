@@ -1,0 +1,2 @@
+Run bash with this exact command (no head/tail/wc/pipe): find . -name "*.c" -path "*/kernel/*"
+Then in 2 sentences tell me roughly how many kernel C files exist and which subsystems dominate.

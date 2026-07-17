@@ -1,0 +1,6 @@
+Audit the kernel/sched/ scheduler subsystem. Do these steps in order:
+1. Run bash: ls -la kernel/sched/
+2. Run bash: find kernel/sched -name "*.c"
+3. Run bash: grep -rn "sched_class" --include="*.c" kernel/sched/ | head -50
+4. Read first 300 lines of kernel/sched/core.c
+Then write a 5-bullet summary of the Linux scheduler architecture. Do NOT paste raw outputs.

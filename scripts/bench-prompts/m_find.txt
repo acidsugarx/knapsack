@@ -1,0 +1,2 @@
+Run bash with this exact command: find . -name "*.c"
+Do NOT pipe through head/tail/wc/grep. Run it raw. Then in 3 sentences tell me: total count of files, and which top-level directories likely contain the most.

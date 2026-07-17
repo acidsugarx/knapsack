@@ -5,19 +5,32 @@
 Knapsack compresses large tool outputs before they reach the LLM, caches originals locally, and maintains a persistent memory store across sessions. Your agent spends fewer tokens, remembers what it learned, and stays aware through compaction. Backed by Obsidian for notes and CCR retrieval.
 
 ```
-Raw bash output:  12,000 tokens
-     ↓ Knapsack
-Compressed:           300 tokens  (97% saved)
-     ↓
-Model sees:      errors + warnings + exit code
-Full original:   always retrievable via knapsack_retrieve()
+tool_result intercepted     ↓     model sees
+─────────────────────────         ────────────────────────
+12 636 tokens (find .c)           2 188 tokens  (83% smaller)
+ 4 114 tokens (kernel/sched/core.c)   327 tokens  (92% smaller, AST)
+ 6 119 tokens (grep EXPORT_SYMBOL)   992 tokens  (84% smaller)
+                                                       · hash · summary sufficient
+Originals cached at ~/.knapsack/cache/{hash} → knapsack_retrieve(hash) on demand
 ```
+
+**Measured on real Pi sessions** (zai/glm-5-turbo, linux kernel clone, billed tokens at Anthropic rates — see [Benchmark](#benchmark)):
+
+| Scenario | Savings |
+|---|---:|
+| `find` kernel/ subtree (20k→3.5k billed) | **+83%** |
+| `find` 36 913 .c files | +60% |
+| `grep` EXPORT_SYMBOL | +54% |
+| `read` list functions in core.c | +45% |
+| Explore dir (3 tools) | +30% |
+| Multi-step workflow (4 tools) | +18% |
 
 ## What it does
 
 | Capability | How |
 |---|---|
 | **Token reduction** | Compresses bash, grep, find, code, JSON output — transparently, before LLM sees it |
+| **AST-aware code** | tree-sitter WASM (C/TS/JS/Python/Go/Rust) — accurate signatures, structs, interfaces |
 | **Plugin architecture** | StrategyRegistry + ContentDetector — extensible compression strategies |
 | **Persistent memory** | SQLite + hybrid BM25/embeddings search. Saves decisions, gotchas, facts across sessions |
 | **Semantic search** | Optional local embeddings (384-dim MiniLM) — finds related concepts without shared words |
@@ -65,11 +78,12 @@ Every `tool_result` event is intercepted. Content type is auto-detected, and the
 |---|---|---|
 | **bash** | Log markers ([ERROR], [WARN]), exit codes, stack traces | 94% |
 | **grep** | `file:line:content` pattern | 74% |
-| **find** | File paths, no grep-style line numbers | 60% |
-| **code** | Import/export/class/function declarations | 52% |
+| **find** | File paths, no grep-style line numbers | 60–83% |
+| **code-ast** | tree-sitter grammar (C/TS/JS/Python/Go/Rust) — imports, signatures, structs, interfaces | 89–92% |
+| **code** (regex fallback) | Import/export/class/function declarations for languages without a grammar | 52% |
 | **JSON** | Starts with `{` or `[`, parses as JSON | 84% |
 
-Originals cached in `~/.knapsack/cache/{hash}`. Model sees compressed output + retrieval hint. Calls `knapsack_retrieve(hash)` for full original.
+Originals cached in `~/.knapsack/cache/{hash}`. Model sees compressed output + a non-provocative footer (`📦 X% smaller · hash Y · summary is sufficient for listing/overview/structure tasks`). Calls `knapsack_retrieve(hash)` only when a specific detail is missing.
 
 Auto-routing works with ANY tool — `bash`, `grep`, `find`, `ffgrep`, `fffind`, custom tools. No configuration needed.
 
@@ -127,17 +141,37 @@ No env vars or config — package presence is the toggle.
 
 ## Benchmark
 
-```
-bash       8036 →   445 tokens  (94%)
-grep       7060 →  1806 tokens  (74%)
-find       2301 →   913 tokens  (60%)
-code        944 →   456 tokens  (52%)
-json        381 →    81 tokens  (79%)
-─────────────────────────────────
-TOTAL     18722 →  3701 tokens  (80%)
-```
+### Per-output compression (single tool result)
 
 All benchmarks verify signal preservation — errors, imports, signatures, structure survive compression.
+
+```
+bash            8036 →    445 tokens  (94%)
+grep            7060 →   1806 tokens  (74%)
+find            2301 →    913 tokens  (60%)
+code-ast (C)    4114 →    327 tokens  (92%)   kernel/sched/core.c
+code (regex)     944 →    456 tokens  (52%)   fallback for unsupported langs
+json             381 →     81 tokens  (79%)
+───────────────────────────────────────────
+```
+
+### End-to-end Pi session savings (v0.2.0)
+
+Real `pi -p` runs, zai/glm-5-turbo, linux kernel shallow clone (94 840 files), median of 3–5 runs.
+Billed tokens = `input + cacheRead×0.10 + cacheWrite×1.25` (Anthropic rates). This is the realistic
+cost metric: pi's prefix cache stays hot, so Knapsack's per-turn overhead lands in the cheaper
+`cacheRead` bucket while compression shrinks `input`.
+
+| Scenario                      | Baseline | Knapsack | Savings |
+|-------------------------------|---------:|---------:|--------:|
+| `find` kernel/ subtree        |    20280 |     3558 |   82.5% |
+| `find` 36 913 .c files        |    23716 |     9404 |   60.3% |
+| `grep` EXPORT_SYMBOL          |     8927 |     4155 |   53.5% |
+| `read` list functions in .c   |     5733 |     3175 |   44.6% |
+| Explore dir (3 tools)         |     4502 |     3166 |   29.7% |
+| Multi-step workflow (4 tools) |     7946 |     6512 |   18.1% |
+
+Reproduce with `scripts/bench-pi.sh` (see comments for setup).
 
 ## Configuration
 
@@ -152,7 +186,7 @@ All benchmarks verify signal preservation — errors, imports, signatures, struc
 git clone git@github.com:acidsugarx/knapsack.git
 cd knapsack
 npm install
-npm test           # vitest (35 tests)
+npm test           # vitest (40 tests)
 npm run check      # biome lint + format
 ```
 

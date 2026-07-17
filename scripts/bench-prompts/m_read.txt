@@ -1,0 +1,1 @@
+Read the file kernel/sched/core.c (first 400 lines). Do NOT paste the code back. List the main functions declared with a one-line purpose for each.
