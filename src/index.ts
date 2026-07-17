@@ -37,6 +37,7 @@ import { registerTools } from "./tools/index";
  * The factory is async because sql.js (WASM) requires async initialization.
  *
  * @param pi - Pi's ExtensionAPI instance
+ * @returns A promise that resolves once all hooks, tools, and commands are wired up.
  *
  * @example
  * ```bash

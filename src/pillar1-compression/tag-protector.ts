@@ -51,7 +51,11 @@ interface Protection {
 	tags: Map<string, string>;
 }
 
-/** Returns true if any tag block was found and replaced. */
+/**
+ * Returns true if any tag block was found and replaced.
+ *
+ * @param text - Source text to scan.
+ */
 export function hasProtectedTags(text: string): boolean {
 	for (const name of PROTECTED_TAGS) {
 		const re = new RegExp(`<${name}>[\\s\\S]*?</${name}>`, "i");
@@ -66,6 +70,9 @@ export function hasProtectedTags(text: string): boolean {
  * Placeholders are stable per call: scanning again on the protected text
  * returns no matches, so callers can safely chain through compressors that
  * re-detect content type.
+ *
+ * @param text - Source text containing zero or more protected tag blocks.
+ * @returns The protected text plus the placeholder map.
  */
 export function protectTags(text: string): Protection {
 	const tags = new Map<string, string>();
@@ -90,6 +97,11 @@ export function protectTags(text: string): Protection {
  * Placeholders that disappeared from the compressed body (e.g. dropped by
  * the compressor as noise) are simply not restored — the model loses that
  * block but at least no malformed fragments remain.
+ *
+ * @param text - Text containing zero or more placeholders.
+ * @param tags - Map returned by {@link protectTags}.
+ * @returns `text` with each placeholder substituted back to its original
+ * block.
  */
 export function restoreTags(text: string, tags: Map<string, string>): string {
 	if (tags.size === 0) return text;

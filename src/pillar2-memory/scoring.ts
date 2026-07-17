@@ -7,7 +7,7 @@
  *   score = 0.35×BM25 + 0.35×cosine_sim + 0.2×importance + 0.1×recency
  *
  * When embeddings unavailable (graceful degradation):
- *   score = 0.5×BM25_sigmoid + 0.3×importance + 0.2×recency
+ *   score = 0.5×BM25_saturation + 0.3×importance + 0.2×recency
  *
  * The embedding weight gives semantic matches ("deployment strategy"
  * finds "CI/CD pipeline") while BM25 keeps exact keyword matches

@@ -1,3 +1,8 @@
+/**
+ * Grep output compression strategy — groups `file:line:content` matches by directory.
+ *
+ * @module grep-compression
+ */
 import { sha256 } from "../../core/hash";
 import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressionResult } from "../../core/types";

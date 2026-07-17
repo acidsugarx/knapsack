@@ -118,6 +118,10 @@ export function parseAnchor(entry: {
 
 /**
  * Format a drift detection result for display.
+ *
+ * @param detections - Output of {@link checkDrift}.
+ * @returns Human-readable string with one bullet per drift, or a clean
+ * "aligned" message when nothing matched.
  */
 export function formatDriftReport(detections: DriftCheckResult[]): string {
 	if (detections.length === 0) {

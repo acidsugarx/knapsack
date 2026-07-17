@@ -15,6 +15,18 @@ import { STOP_WORDS, scoreAndRank } from "./scoring";
 const MAX_INJECTED_MEMORIES = 5;
 const MAX_CANDIDATES = 15;
 
+/**
+ * before_agent_start hook — search memories relevant to the user prompt and
+ * format them as a system-prompt injection block. Uses the shared
+ * `scoreAndRank` from scoring.ts for consistent ranking between injection
+ * and `knapsack_search`.
+ *
+ * @param event - Pi's BeforeAgentStartEvent carrying the user prompt.
+ * @param db - Open KnapsackDB handle.
+ * @param store - Runtime store (project root + session id).
+ * @returns A formatted memory block string to append to the system prompt,
+ * or undefined when no memories match.
+ */
 export async function memoryInjectHook(
 	event: BeforeAgentStartEvent,
 	db: KnapsackDB,

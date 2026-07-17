@@ -11,3 +11,6 @@ dist/
 coverage/
 .vscode/
 .idea/
+
+# pi-subagent review/run artifacts — not source
+.pi-subagents/

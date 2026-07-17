@@ -203,6 +203,11 @@ function parseFrontmatter(noteText: string): Record<string, string | string[]> |
  *
  * Frontmatter is read once per file (cached for the call) so adding this
  * enrichment to a search with 20 matches in 5 files costs 5 file reads, not 20.
+ *
+ * @param vaultPath - Vault root used to scope the search and validate match paths.
+ * @param query - Search query forwarded to ripgrep / grep.
+ * @param limit - Maximum number of raw matches returned by the underlying search.
+ * @returns Enriched hits, or null when `vaultPath` is unavailable.
  */
 export function searchVaultWithFrontmatter(
 	vaultPath: string | null,
@@ -245,7 +250,13 @@ export function searchVaultWithFrontmatter(
 	return hits;
 }
 
-/** Format frontmatter-aware hits into a single string for tool output. */
+/**
+ * Format frontmatter-aware hits into a single string for tool output.
+ *
+ * @param hits - Hits returned by {@link searchVaultWithFrontmatter} (or null).
+ * @returns One line per hit with `key=value` frontmatter appended, or
+ * `"(no matches)"` for empty input.
+ */
 export function formatVaultHits(hits: VaultSearchHit[] | null): string {
 	if (!hits || hits.length === 0) return "(no matches)";
 	const lines: string[] = [];

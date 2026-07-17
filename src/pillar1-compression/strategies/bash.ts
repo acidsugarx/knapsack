@@ -1,3 +1,11 @@
+/**
+ * Bash output compression strategy — collapses logs and captures errors.
+ *
+ * Pipeline: ANSI strip → log template mining (Drain-style) → severity
+ * classification (errors/warnings/info/other) → deduplication → tail.
+ *
+ * @module bash-compression
+ */
 import { sha256 } from "../../core/hash";
 import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressedSection, CompressionResult } from "../../core/types";
@@ -125,9 +133,17 @@ export interface BashCompressOptions {
 }
 
 export function compressBash(
+	/**
+	 * Combined stdout text. If `stderr` is also supplied it is prepended
+	 * so that error-traces and the actual program output are classified
+	 * together.
+	 */
 	stdout: string,
+	/** Optional stderr; prepended onto `stdout` before classification. */
 	stderr?: string,
+	/** Process exit code surfaced in the compressed header. */
 	exitCode?: number,
+	/** Per-section size caps. */
 	options: BashCompressOptions = {},
 ): CompressionResult {
 	const { maxErrors = 50, maxWarnings = 20, maxTail = 15 } = options;

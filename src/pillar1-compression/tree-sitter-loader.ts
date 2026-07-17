@@ -49,9 +49,11 @@ async function ensureInit(): Promise<void> {
 /**
  * Load a tree-sitter grammar by language id.
  *
- * Returns null if the language is unknown, the grammar package is not
- * installed, or loading fails. Callers must handle null by falling back
- * to the regex strategy.
+ * @param name - One of the keys of {@link GRAMMAR_PKG} (`c`, `typescript`,
+ * `tsx`, `javascript`, `python`, `go`, `rust`).
+ * @returns The loaded `Language`, or null if the language is unknown, the
+ * grammar package is not installed, or loading fails. Callers must handle
+ * null by falling back to the regex strategy.
  */
 export async function loadLanguage(name: string): Promise<Language | null> {
 	const spec = GRAMMAR_PKG[name];
@@ -75,7 +77,8 @@ export async function loadLanguage(name: string): Promise<Language | null> {
 /**
  * Detect language from a filename extension or simple content heuristics.
  *
- * Returns one of the keys of {@link GRAMMAR_PKG} or null if unknown.
+ * @param filename - Filename to inspect (e.g. `core.c`, `app.tsx`).
+ * @returns One of the keys of {@link GRAMMAR_PKG}, or null if unknown.
  */
 export function detectLanguageFromExt(filename?: string): string | null {
 	if (!filename) return null;

@@ -329,12 +329,8 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 	} catch {}
 
 	/**
-	 * Save the database to disk.
-	 * Called after every write to ensure persistence.
-	 */
-	/**
 	 * Save the database to disk — debounced.
-	 * Accumulates writes and flushes every 2s or on close.
+	 * Accumulates writes and flushes every 2s, or immediately via `saveNow()`.
 	 */
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 	function save(): void {

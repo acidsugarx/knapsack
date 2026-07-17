@@ -114,7 +114,7 @@ export function serializeEmbedding(vec: Float32Array): string {
  * Deserialize an embedding vector from SQLite storage.
  *
  * @param str - JSON string from database
- * @returns Float32Array embedding
+ * @returns Float32Array embedding, or null if embedding failed
  */
 export function deserializeEmbedding(str: string): Float32Array | null {
 	try {

@@ -53,6 +53,33 @@ Do not present the claim as fact.
 - Do not preserve backward compatibility unless asked.
 - Always ask before removing functionality or code that appears intentional.
 
+## Documentation (must-have for every change)
+
+Inline documentation is a hard requirement, not a polish step. Code without
+JSDoc is incomplete code and will be rejected at review. The codebase is read
+by AI agents on every session — stale or missing docs are actively harmful,
+not just untidy.
+
+- **Every exported symbol** (function, class, interface, type, constant) has a JSDoc block.
+- **Every parameter is documented with `@param <name> - ...`** — name must match the code exactly.
+- **Every non-void return is documented with `@returns ...`** — including `null` / `undefined`
+  arms and `Promise<T>` wrappers (write the inner `T`, not just `Promise`).
+- **Every `.ts` file has a `@module <name>` block** at the top describing what the module is for.
+- **JSDoc reflects current behaviour.** When you change a function's contract, signature,
+  or return shape, update the doc in the same commit. A doc that lies is worse than no doc.
+- **Non-trivial private helpers** get at least a one-line `/** ... */` summary. Trivial one-liners
+  (pure forwarders, sort comparators) can skip it.
+- **Interface fields and type alias members** are documented inline when their purpose is
+  not obvious from the name.
+- **Module-level side effects, hooks, and lifecycle handlers** (`pi.on(...)`, `registerTool`,
+  `registerCommand`) carry a JSDoc explaining when they fire and what they mutate.
+- **Before committing a feature commit**, the author verifies by reading each new/changed
+  exported symbol: "could another agent (or me in 3 months) use this correctly from the doc
+  alone?". If not, the doc is not done.
+
+Exceptions require an explicit `// intentionally undocumented because ...` comment on the
+same symbol. Unexplained missing docs fail review.
+
 ## Security (Critical for Knapsack)
 
 Knapsack processes untrusted LLM output and writes to the user's filesystem.

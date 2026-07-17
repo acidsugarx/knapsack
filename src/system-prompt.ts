@@ -8,19 +8,30 @@
  *
  * 1. **XML structure** — Claude reads XML tags as semantic boundaries
  * 2. **Top + bottom anchoring** — critical triggers at both ends
- * 3. **Action-oriented triggers** — "Before X, do Y", never descriptive
- * 4. **Strict imperative tone** — MANDATORY / ALWAYS / No exceptions. Never
- *    hedge with "proactively" or "you may want to". These tools are
- *    infrastructure, not optional helpers.
- * 5. **Concise** — ~200 tokens. Every word earns its place in context window
+ * 3. **Action-oriented triggers** — "When X, do Y", never descriptive
+ * 4. **Compression-as-default tone** — the system prompt frames
+ *    compression as the baseline path and only routes the model to
+ *    `knapsack_save` / `knapsack_search` on explicit triggers (user
+ *    said "remember", brand-new project, non-obvious pitfall). Strict
+ *    MANDATORY/ALWAYS wording was retired in v0.2 after benchmarks
+ *    showed it made the model over-call tools in multi-step workflows.
+ * 5. **Concise** — ~200 tokens. Every word earns its place in the context
+ *    window.
  * 6. **Lexical triggers** — concrete user phrases ("remember", "note") the
- *    model pattern-matches on, not abstract categories
+ *    model pattern-matches on, not abstract categories.
  *
  * @module system-prompt
  * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering
  * @see https://platform.openai.com/docs/guides/prompt-engineering
  */
 
+/**
+ * Build the Knapsack usage-guidance block injected into the system prompt.
+ *
+ * @returns A `<knapsack_guidance>…</knapsack_guidance>` XML block. The bytes
+ * are stable across turns (no per-prompt content) so Pi's prompt cache stays
+ * hot — important for billed-token economics on pay-per-token providers.
+ */
 export function knapsackPromptGuidance(): string {
 	return `<knapsack_guidance>
 Knapsack compresses large tool outputs automatically (footer shows % saved + hash). The compressed form is enough for summaries, counts, structure, and listing tasks — retrieve the original only when a specific detail is missing and you cannot proceed without it.

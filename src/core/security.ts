@@ -57,7 +57,11 @@ const PATTERNS: Pattern[] = [
 	},
 ];
 
-/** Scan text for credential patterns. Returns findings in document order. */
+/** Scan `text` for credential patterns.
+ *
+ * @param text - Tool output (or any string) to scan.
+ * @returns Findings in document order; empty array when nothing matched.
+ */
 export function detectSecrets(text: string): SecretFinding[] {
 	const findings: SecretFinding[] = [];
 	for (const { kind, re } of PATTERNS) {
@@ -79,6 +83,12 @@ export function detectSecrets(text: string): SecretFinding[] {
  * only applies to the compressed body the model sees. `knapsack_retrieve`
  * returns the original (with the secret intact) so the user can still see
  * what was elided if they explicitly ask.
+ *
+ * @param text - Source text containing the spans listed in `findings`.
+ * @param findings - Findings returned by {@link detectSecrets}. Spans must
+ * reference offsets in `text`; the function walks the list in reverse so
+ * earlier offsets stay valid as the string is spliced.
+ * @returns `text` with each finding's span replaced by `<redacted:KIND>`.
  */
 export function redactSecrets(text: string, findings: SecretFinding[]): string {
 	if (findings.length === 0) return text;
