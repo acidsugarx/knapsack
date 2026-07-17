@@ -94,12 +94,38 @@ workflows from 5/run → 0-1/run.
   cache stay intact so `knapsack_retrieve` still works. Generic
   `token`/`password` keywords are intentionally not flagged (Headroom
   parity — they are CLI flags far more often than real secrets).
+- **Adaptive sizer** for find strategy. Kneedle algorithm on cumulative
+  unique-bigram coverage decides how many dirs/files to surface, replacing
+  the hardcoded `MAX_DIRS=15`/`MAX_FILES_PER_DIR=5` caps. Hard ceilings
+  remain as a safety cap on pathological inputs. Dense trees get a fuller
+  listing; repetitive trees collapse harder.
+- **Memory consolidation.** `saveMemory` merges into an existing same-type
+  entry when Jaccard word overlap >= 0.75 instead of inserting a
+  near-duplicate. Longer content wins, importance is bumped, access_count
+  increments. Stops the auto-observe loop from accumulating paraphrased
+  gotchas about the same root cause.
+- **Frontmatter-aware `knapsack_obsidian`.** Vault search results now carry
+  the parsed YAML frontmatter (tags, dates, importance, custom keys) of
+  the file each match landed in. Frontmatter is parsed by a tiny in-repo
+  YAML subset (no new dep) and cached per-file for one search call.
+
+### Measured impact
+v0.3 features re-benched end-to-end on top of v0.2 (`pi -p`, zai/glm-5-turbo,
+linux kernel clone, billed tokens, median of 3 runs):
+
+| Scenario                      | Baseline | Knapsack | Savings |
+|-------------------------------|---------:|---------:|--------:|
+| `find` kernel/ subtree        |    20276 |     7294 |   64.0% |
+| `find` 36 913 .c files        |     8557 |     3669 |   57.1% |
+| Multi-step workflow (4 tools) |     9768 |     8464 |   13.3% |
+
+`m_read` on a small 400-line file lands in borderline territory where
+per-turn overhead ≈ compression savings; on longer reads AST extraction
+still wins by 40%+.
 
 ### Planned
-- Memory consolidation — auto-merge similar entries
-- `knapsack_obsidian`: frontmatter-aware search
-- Adaptive Sizer (Kneedle algorithm on bigram coverage) to replace the
-  hardcoded `MAX_DIRS`/`MAX_FILES` caps in find/grep strategies
+- Memory consolidation — batch cleanup command for pre-existing duplicates
+- Multi-platform v2.0 (MCP server / Claude Code / proxy mode)
 
 ## [0.1.0] — 2026-07-16
 
