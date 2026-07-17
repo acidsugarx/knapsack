@@ -1,6 +1,6 @@
 {
 	"name": "knapsack-pi",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"description": "Token reduction & persistent memory for Pi coding agent — compress tool outputs, save decisions across sessions, survive compaction, backed by Obsidian",
 	"type": "module",
 	"main": "./src/index.ts",
