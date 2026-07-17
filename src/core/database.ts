@@ -204,6 +204,57 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 	return inter / (a.size + b.size - inter);
 }
 
+/**
+ * Build the set of 3-character grams for a token. Used by the fuzzy
+ * fallback pass: two strings sharing many 3-grams are likely intended to be
+ * the same word, even when one is misspelled.
+ */
+function trigrams(token: string): Set<string> {
+	if (token.length < 3) return new Set(token ? [token] : []);
+	const out = new Set<string>();
+	for (let i = 0; i + 3 <= token.length; i++) {
+		out.add(token.slice(i, i + 3));
+	}
+	return out;
+}
+
+/**
+ * Fuzzy zero-match fallback. For each query term, returns memories whose
+ * content contains at least one word with Jaccard 3-gram overlap >= 0.34
+ * (≈ one shared 3-gram in a 6-char word). No external fuzzy library —
+ * pure JS, fast enough for the typical memory DB size (<10k rows).
+ */
+function fuzzyMatchAnyTerm(terms: string[], entries: MemoryEntry[]): MemoryEntry[] {
+	const termGrams = terms.map((t) => ({ term: t, grams: trigrams(t) }));
+	const matches: MemoryEntry[] = [];
+	const seen = new Set<string>();
+	for (const entry of entries) {
+		const words = entry.content
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter(Boolean);
+		let hit = false;
+		for (const { grams } of termGrams) {
+			for (const word of words) {
+				if (word.length < 3) continue;
+				const wg = trigrams(word);
+				const inter = [...grams].filter((g) => wg.has(g)).length;
+				const union = grams.size + wg.size - inter;
+				if (union > 0 && inter / union >= 0.34) {
+					hit = true;
+					break;
+				}
+			}
+			if (hit) break;
+		}
+		if (hit && !seen.has(entry.id)) {
+			seen.add(entry.id);
+			matches.push(entry);
+		}
+	}
+	return matches;
+}
+
 // ── Public API ─────────────────────────────────────────
 
 export interface KnapsackDB {
@@ -494,6 +545,21 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			let results = allCandidates;
 			if (typeFilter) {
 				results = results.filter((r) => typeFilter.includes(r.type));
+			}
+
+			// ── Fuzzy fallback (fff-style) ──
+			// If the SQL LIKE pass returned nothing, retry with a typo-tolerant
+			// scan: for each query term, pick memories that share at least one
+			// 3-gram with it. Catches "recieve" → "receive", "persistant" →
+			// "persistent", etc. without adding a dep.
+			if (results.length === 0 && terms.length > 0) {
+				const fallback = execRows(
+					db,
+					"SELECT * FROM memory WHERE (project IS NULL OR project = ?)",
+					[project ?? null],
+				).map(rowToMemory);
+				const fuzzy = fuzzyMatchAnyTerm(terms, fallback);
+				results = typeFilter ? fuzzy.filter((r) => typeFilter.includes(r.type)) : fuzzy;
 			}
 
 			return results.slice(0, limit * 2);

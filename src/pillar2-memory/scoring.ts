@@ -139,6 +139,20 @@ export async function scoreAndRank(
 		}
 		const bm25Score = bm25Relevance > 0 ? bm25Relevance / (bm25Relevance + 1.5) : 0;
 
+		// ── Smart-case boost ──
+		// fff-style: when the query carries an uppercase signal, treat the
+		// exact-case match as more meaningful than the case-folded one.
+		// Tokenisation lowercases everything, so we re-check the raw query
+		// tokens against the entry's verbatim content (preserves case).
+		const hasUpper = /[A-Z]/.test(query);
+		let smartCaseBoost = 1;
+		if (hasUpper && bm25Score > 0) {
+			const upperTokens = query
+				.split(/[\s,.;:!?()[\]{}"'`@#$%^&*+=<>|\\/~-]+/)
+				.filter((t) => /[A-Z]/.test(t));
+			if (upperTokens.some((t) => entry.content.includes(t))) smartCaseBoost = 1.15;
+		}
+
 		// ── Embedding cosine similarity ──
 		let embeddingScore = 0;
 		if (queryEmbedding && entry.embedding) {
@@ -148,18 +162,32 @@ export async function scoreAndRank(
 			}
 		}
 
-		// ── Recency ──
+		// ── Recency + Frecency ──
+		// fff-inspired: combine pure recency (time decay) with a log-scaled
+		// access-count term so frequently-reused memories rank above peers that
+		// just happen to be young. Both stay in [0, 1] and blend into the
+		// composite score as separate weights.
 		const ageMs = Date.now() - entry.recency;
 		const recency = Math.max(0.1, 1.0 - ageMs / (30 * 24 * 60 * 60 * 1000));
+		const frecency = Math.min(1, Math.log2(1 + entry.accessCount) / 5);
 
 		// ── Composite score ──
 		let score: number;
 		if (queryEmbedding) {
-			// Hybrid: BM25 + embeddings
-			score = 0.35 * bm25Score + 0.35 * embeddingScore + 0.2 * entry.importance + 0.1 * recency;
+			// Hybrid: BM25 + embeddings + frecency
+			score =
+				0.3 * bm25Score * smartCaseBoost +
+				0.35 * embeddingScore +
+				0.2 * entry.importance +
+				0.1 * recency +
+				0.05 * frecency;
 		} else {
-			// BM25 only
-			score = 0.5 * bm25Score + 0.3 * entry.importance + 0.2 * recency;
+			// BM25 + frecency
+			score =
+				0.45 * bm25Score * smartCaseBoost +
+				0.3 * entry.importance +
+				0.15 * recency +
+				0.1 * frecency;
 		}
 
 		return {

@@ -127,6 +127,25 @@ still wins by 40%+.
 - Memory consolidation — batch cleanup command for pre-existing duplicates
 - Multi-platform v2.0 (MCP server / Claude Code / proxy mode)
 
+### Borrowed from `fff` (dmtrKovalenko/fff)
+Three techniques ported to pure TS (zero deps, no Rust/N-API) after studying the
+fff codebase. fff itself stays out of `dependencies` — it ships native binaries
+which violates AGENTS.md and is already available as pi-fff extension anyway.
+
+- **Frecency boost** in `pillar2-memory/scoring.ts`: composite score gains a
+  separate `0.1×log2(1+access_count)/5` term (capped at 1.0). Frequently-
+  reused memories rank above peers that just happen to be young, without
+  letting a single hyper-active entry dominate.
+- **Smart-case boost**: when the query carries an uppercase signal, entries
+  that preserve the exact case verbatim get a 1.15× BM25 multiplier. Query
+  `JWT` ranks `JWT bearer token` above `we use jwt for tokens`.
+- **Fuzzy zero-match fallback** in `core/database.ts`: when the SQL LIKE pass
+  returns nothing, retry with 3-gram Jaccard overlap (threshold 0.34).
+  Catches `recieve` → `receive`, `persistant` → `persistent` without a dep.
+
+Adds 5 unit tests across frecency, smart-case (with/without uppercase), and
+fuzzy fallback (typo recovery + no-fallback-when-exact-matched).
+
 ## [0.1.0] — 2026-07-16
 
 ### Added
