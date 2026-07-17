@@ -70,11 +70,36 @@ All six scenarios net-positive on billed tokens. The non-provocative footer (`�
 is sufficient for listing/overview/structure tasks`) cut knapsack_retrieve calls in multi-step
 workflows from 5/run → 0-1/run.
 
-## [0.3.0] — Planned
+## [0.3.0] — Unreleased
 
-- Tree-sitter code compression (WASM-based, no native deps)
+### Added
+- **Git diff compression.** New `diff` strategy parses unified-diff
+  format and trims bloated context. Keeps each `+`/`-` change line plus a
+  2-line window around it; long dropped runs collapse to
+  `... (N context lines trimmed)` markers. Bypasses for short diffs (<40
+  lines) and refuses to claim success if the trimmed result is not at least
+  10% smaller than the input.
+- **Log template mining** for bash strategy (Drain-inspired, ported concept
+  from Headroom). Replaces digits / hex / uuids / IPs / emails with
+  placeholders, then collapses consecutive identical-template runs of 3+
+  lines into one sample + `[Nx]` count. Lossless summary of repetitive
+  `INFO worker-N processing job-M` spam.
+- **Tag protector.** Known XML/custom tag blocks (`<system-reminder>`,
+  `<tool_call>`, `<thinking>`, `<args>`, `<function_calls>`, ...) are
+  swapped for opaque placeholders before the compressor sees them and
+  restored after, so the strategies cannot slice these markers apart.
+- **Secret redaction.** High-confidence credentials (JWTs, PEM private keys,
+  AWS access key IDs, vendor tokens `sk-ant-`/`ghp_`/`glpat-`/`xoxb-`) are
+  redacted from the compressed body the model sees. Originals in the CCR
+  cache stay intact so `knapsack_retrieve` still works. Generic
+  `token`/`password` keywords are intentionally not flagged (Headroom
+  parity — they are CLI flags far more often than real secrets).
+
+### Planned
 - Memory consolidation — auto-merge similar entries
 - `knapsack_obsidian`: frontmatter-aware search
+- Adaptive Sizer (Kneedle algorithm on bigram coverage) to replace the
+  hardcoded `MAX_DIRS`/`MAX_FILES` caps in find/grep strategies
 
 ## [0.1.0] — 2026-07-16
 
