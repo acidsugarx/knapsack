@@ -27,9 +27,11 @@
 
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
+import { detectSecrets, redactSecrets } from "../core/security";
 import type { KnapsackStore } from "../core/types";
 import { cache } from "./ccr";
 import type { StrategyRegistry } from "./plugin";
+import { protectTags, restoreTags } from "./tag-protector";
 
 /**
  * Process a tool result event through the compression pipeline.
@@ -58,9 +60,22 @@ export async function compressionHook(
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
 
-	// Compress via registry (auto-routing by content, fallback by tool name)
-	const result = await registry.compress(contentText, { toolName, path });
+	// Compress via registry (auto-routing by content, fallback by tool name).
+	// Wrap with tag protection so XML/custom markers the model needs are not
+	// sliced apart by the compressor.
+	const { protectedText, tags } = protectTags(contentText);
+	const result = await registry.compress(protectedText, { toolName, path });
 	if (!result) return;
+	if (tags.size > 0) {
+		result.body = restoreTags(result.body, tags);
+	}
+
+	// Redact high-confidence secrets in the compressed body only — the
+	// CCR cache still gets the original so knapsack_retrieve works.
+	const secrets = detectSecrets(result.body);
+	if (secrets.length > 0) {
+		result.body = redactSecrets(result.body, secrets);
+	}
 
 	// Cache original locally (CCR) — ~/.knapsack/cache, not vault
 	const ccrHash = cache(
