@@ -65,16 +65,26 @@ export async function compressionHook(
 	// sliced apart by the compressor.
 	const { protectedText, tags } = protectTags(contentText);
 	const result = await registry.compress(protectedText, { toolName, path });
-	if (!result) return;
-	if (tags.size > 0) {
-		result.body = restoreTags(result.body, tags);
+
+	// Always scan for high-confidence secrets — even when the output is too
+	// small to compress, a JWT or private key must not reach the model verbatim.
+	// The CCR cache still gets the original so knapsack_retrieve works.
+	const scanSource = result?.body ?? protectedText;
+	const secrets = detectSecrets(scanSource);
+	const redactedSource = secrets.length > 0 ? redactSecrets(scanSource, secrets) : scanSource;
+
+	if (!result) {
+		// No compression applied. Return only if we redacted something;
+		// otherwise leave the tool_result untouched.
+		if (secrets.length === 0) return;
+		return {
+			content: [{ type: "text", text: redactedSource }],
+		};
 	}
 
-	// Redact high-confidence secrets in the compressed body only — the
-	// CCR cache still gets the original so knapsack_retrieve works.
-	const secrets = detectSecrets(result.body);
-	if (secrets.length > 0) {
-		result.body = redactSecrets(result.body, secrets);
+	result.body = redactedSource;
+	if (tags.size > 0) {
+		result.body = restoreTags(result.body, tags);
 	}
 
 	// Cache original locally (CCR) — ~/.knapsack/cache, not vault
