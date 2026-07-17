@@ -181,6 +181,29 @@ function execOne(
 	return rows[0];
 }
 
+// ── Memory consolidation helpers ───────────────────────────────────────────
+
+/** Jaccard word-overlap threshold above which two same-type entries merge.
+ * Set conservatively below the typical paraphrase ratio so reworded duplicates
+ * still collapse; high enough that genuinely different topics stay apart. */
+const CONSOLIDATION_THRESHOLD = 0.75;
+/** Importance boost applied when a new save merges into an existing entry. */
+const CONSOLIDATION_IMPORTANCE_BOOST = 0.1;
+
+/** Lowercase, collapse non-alphanumeric to single spaces. */
+function normalizeForSimilarity(text: string): Set<string> {
+	const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+	return new Set(normalized.split(/\s+/).filter((w) => w.length >= 3));
+}
+
+/** Jaccard similarity over word sets: |A ∩ B| / |A ∪ B|. */
+function jaccard(a: Set<string>, b: Set<string>): number {
+	if (a.size === 0 || b.size === 0) return 0;
+	let inter = 0;
+	for (const w of a) if (b.has(w)) inter++;
+	return inter / (a.size + b.size - inter);
+}
+
 // ── Public API ─────────────────────────────────────────
 
 export interface KnapsackDB {
@@ -322,12 +345,78 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		writeFileSync(dbPath, Buffer.from(data));
 	}
 
+	/**
+	 * Find an existing memory entry that is semantically very close to the
+	 * incoming content — same type, same project — with Jaccard word overlap
+	 * at or above {@link CONSOLIDATION_THRESHOLD}. Used by saveMemory to
+	 * merge duplicates instead of accumulating near-identical rows.
+	 */
+	function findSimilarForMerge(input: {
+		content: string;
+		type: string;
+		scope?: string;
+		project?: string;
+	}): MemoryEntry | undefined {
+		const rows = execRows(
+			db,
+			"SELECT * FROM memory WHERE type = ? AND (project IS NULL OR project = ?)",
+			[input.type, input.project ?? null],
+		);
+		const candidates = rows.map(rowToMemory);
+		if (candidates.length === 0) return undefined;
+		const normNew = normalizeForSimilarity(input.content);
+		let best: { entry: MemoryEntry; score: number } | undefined;
+		for (const entry of candidates) {
+			const score = jaccard(normNew, normalizeForSimilarity(entry.content));
+			if (score >= CONSOLIDATION_THRESHOLD && (!best || score > best.score)) {
+				best = { entry, score };
+			}
+		}
+		return best?.entry;
+	}
+
 	const api: KnapsackDB = {
 		saveMemory(input) {
 			const now = new Date().toISOString();
+			const ts = Date.now();
+
+			// Consolidation: if a very similar entry already exists, merge into it
+			// instead of inserting a duplicate. Keep the longer content (more
+			// detail wins), bump importance slightly, and increment access_count
+			// so the entry moves up in ranking.
+			const existing = findSimilarForMerge(input);
+			if (existing) {
+				const mergedContent =
+					input.content.length > existing.content.length ? input.content : existing.content;
+				const mergedImportance = Math.min(
+					1,
+					Math.max(existing.importance, input.importance ?? 0.5) + CONSOLIDATION_IMPORTANCE_BOOST,
+				);
+				db.run(
+					"UPDATE memory SET content = ?, importance = ?, updated_at = ?, last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
+					[mergedContent, mergedImportance, now, now, existing.id],
+				);
+				save();
+				return {
+					id: existing.id,
+					content: mergedContent,
+					type: existing.type,
+					scope: existing.scope,
+					project: existing.project,
+					importance: mergedImportance,
+					recency: existing.recency,
+					createdAt: existing.createdAt,
+					updatedAt: now,
+					contentHash: existing.contentHash,
+					sourceSession: existing.sourceSession,
+					accessCount: existing.accessCount + 1,
+					lastAccessed: now,
+					embedding: existing.embedding,
+				};
+			}
+
 			const id = randomUUID();
 			const contentHash = sha256(input.content + input.type);
-			const ts = Date.now();
 
 			const sql = `INSERT INTO memory (id, content, type, scope, project, importance, recency, created_at, updated_at, content_hash, source_session, embedding)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

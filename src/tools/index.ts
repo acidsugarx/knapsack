@@ -17,7 +17,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { searchVault } from "../bridge/obsidian";
+import { formatVaultHits, searchVaultWithFrontmatter } from "../bridge/obsidian";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 import { retrieve } from "../pillar1-compression/ccr";
@@ -388,9 +388,9 @@ export function registerTools(
 				};
 			}
 
-			const results = searchVault(store.vaultPath, params.query, params.limit ?? 20);
+			const hits = searchVaultWithFrontmatter(store.vaultPath, params.query, params.limit ?? 20);
 
-			if (!results || results.length === 0) {
+			if (!hits || hits.length === 0) {
 				// Count total markdown files in vault for context
 				let vaultFileCount = 0;
 				try {
@@ -422,10 +422,10 @@ export function registerTools(
 				content: [
 					{
 						type: "text" as const,
-						text: `Found ${results.length} notes in Obsidian:\n\n${results.slice(0, 20).join("\n")}`,
+						text: `Found ${hits.length} notes in Obsidian:\n\n${formatVaultHits(hits)}`,
 					},
 				],
-				details: { query: params.query, results: results.length },
+				details: { query: params.query, results: hits.length },
 			};
 		},
 	});

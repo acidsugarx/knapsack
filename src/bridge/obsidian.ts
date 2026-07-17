@@ -151,3 +151,106 @@ export function searchVault(vaultPath: string | null, query: string, limit = 20)
 		}
 	}
 }
+
+// ── Frontmatter-aware search ────────────────────────────────────────────────
+
+export interface VaultSearchHit {
+	/** Match string in "file:line:content" format (unchanged from searchVault). */
+	raw: string;
+	/** Path to the file the match landed in. */
+	file: string;
+	/** Line number (1-based). */
+	line: number;
+	/** Content of the matching line. */
+	content: string;
+	/** Parsed YAML frontmatter if the file is a markdown note with one. */
+	frontmatter?: Record<string, string | string[]>;
+}
+
+const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
+
+/** Parse the simple subset of YAML used in Obsidian frontmatter. */
+function parseFrontmatter(noteText: string): Record<string, string | string[]> | undefined {
+	const m = noteText.match(FRONTMATTER_RE);
+	if (!m) return undefined;
+	const out: Record<string, string | string[]> = {};
+	let currentKey = "";
+	for (const line of (m[1] ?? "").split("\n")) {
+		const kv = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+		if (kv) {
+			currentKey = kv[1] ?? "";
+			const v = (kv[2] ?? "").trim().replace(/^["']|["']$/g, "");
+			if (v) out[currentKey] = v;
+			else if (!(currentKey in out)) out[currentKey] = [];
+			continue;
+		}
+		const li = line.match(/^\s+-\s+(.*)$/);
+		if (li && currentKey) {
+			const item = (li[1] ?? "").trim().replace(/^["']|["']$/g, "");
+			const existing = out[currentKey];
+			if (Array.isArray(existing)) existing.push(item);
+			else if (typeof existing === "string" && existing) out[currentKey] = [existing, item];
+			else out[currentKey] = [item];
+		}
+	}
+	return out;
+}
+
+/**
+ * Run a vault search and enrich each match with the YAML frontmatter of the
+ * file it landed in (when present). The raw match string is preserved so
+ * callers can still render the original `file:line:content` form.
+ *
+ * Frontmatter is read once per file (cached for the call) so adding this
+ * enrichment to a search with 20 matches in 5 files costs 5 file reads, not 20.
+ */
+export function searchVaultWithFrontmatter(
+	vaultPath: string | null,
+	query: string,
+	limit = 20,
+): VaultSearchHit[] | null {
+	const raw = searchVault(vaultPath, query, limit);
+	if (!raw) return null;
+
+	const fmCache = new Map<string, Record<string, string | string[]> | undefined>();
+	const hits: VaultSearchHit[] = [];
+	for (const line of raw) {
+		const m = line.match(/^(.+?):(\d+):(.*)$/);
+		if (!m) continue;
+		const [, file, lineNum, content] = m;
+		const filePath = file ?? "";
+		let frontmatter = fmCache.get(filePath);
+		if (frontmatter === undefined && filePath.endsWith(".md")) {
+			try {
+				const { readFileSync } = require("node:fs");
+				const text = readFileSync(filePath, "utf8");
+				frontmatter = parseFrontmatter(text);
+			} catch {
+				frontmatter = undefined;
+			}
+			fmCache.set(filePath, frontmatter);
+		}
+		hits.push({
+			raw: line,
+			file: filePath,
+			line: Number(lineNum ?? 0),
+			content: content ?? "",
+			frontmatter,
+		});
+	}
+	return hits;
+}
+
+/** Format frontmatter-aware hits into a single string for tool output. */
+export function formatVaultHits(hits: VaultSearchHit[] | null): string {
+	if (!hits || hits.length === 0) return "(no matches)";
+	const lines: string[] = [];
+	for (const h of hits) {
+		const fm =
+			h.frontmatter && Object.keys(h.frontmatter).length > 0
+				? ` · ${(Object.entries(h.frontmatter).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`)).join(" ")}`
+				: "";
+		lines.push(`${h.raw}${fm}`);
+	}
+	return lines.join("\n");
+}

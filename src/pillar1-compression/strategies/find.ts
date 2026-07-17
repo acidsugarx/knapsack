@@ -18,15 +18,18 @@
 import { sha256 } from "../../core/hash";
 import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressionResult } from "../../core/types";
+import { optimalKCapped } from "../adaptive-sizer";
 
 /**
- * Maximum number of top-level directories to show in detail.
- * Directories beyond this are collapsed to a summary line.
+ * Hard ceiling on the number of subdirectories to render per level. The
+ * adaptive sizer (optimalKCapped) picks the actual count based on the
+ * content; this just stops pathological inputs from flooding the output.
  */
 const MAX_DIRS = 15;
 
 /**
- * Maximum files to list per directory before collapsing to a count.
+ * Hard ceiling on the number of files to list per directory. The adaptive
+ * sizer picks the actual count based on the content; this just caps it.
  */
 const MAX_FILES_PER_DIR = 5;
 
@@ -137,31 +140,38 @@ function renderTree(node: DirNode, prefix: string, depth: number): string {
 	const indent = "  ".repeat(depth);
 	const lines: string[] = [];
 
-	// Sort subdirectories by total content size (directories with more files first)
-	const sortedDirs = Array.from(node.subdirs.entries())
-		.sort((a, b) => {
-			const aSize = countAllFiles(a[1]);
-			const bSize = countAllFiles(b[1]);
-			return bSize - aSize;
-		})
-		.slice(0, MAX_DIRS) as [string, DirNode][];
+	// Sort subdirectories by total content size (most files first).
+	const allDirs = Array.from(node.subdirs.entries()).sort((a, b) => {
+		const aSize = countAllFiles(a[1]);
+		const bSize = countAllFiles(b[1]);
+		return bSize - aSize;
+	});
+	// Adaptive count: keep enough dirs to surface the variety without flooding
+	// the output with near-identical siblings. Hard ceiling = MAX_DIRS.
+	const keepDirs = Math.max(
+		1,
+		optimalKCapped(
+			allDirs.map((d) => d[0]),
+			MAX_DIRS,
+		),
+	);
+	const sortedDirs = allDirs.slice(0, keepDirs) as [string, DirNode][];
 
 	for (const [name, subdir] of sortedDirs) {
 		const totalFiles = countAllFiles(subdir);
 		const subPrefix = prefix ? `${prefix}/${name}` : name;
 		lines.push(`${indent}${subPrefix}/  ${totalFiles} files`);
 
-		// List representative files in this directory
-		const sortedFiles = subdir.files.sort().slice(0, MAX_FILES_PER_DIR);
-		for (const file of sortedFiles) {
+		// Adaptive file count — variety over flood.
+		const sortedAllFiles = subdir.files.slice().sort();
+		const keepFiles = Math.max(1, optimalKCapped(sortedAllFiles, MAX_FILES_PER_DIR));
+		for (const file of sortedAllFiles.slice(0, keepFiles)) {
 			lines.push(`${indent}  ${file}`);
 		}
-
-		if (subdir.files.length > MAX_FILES_PER_DIR) {
-			lines.push(`${indent}  (+${subdir.files.length - MAX_FILES_PER_DIR} more files)`);
+		if (subdir.files.length > keepFiles) {
+			lines.push(`${indent}  (+${subdir.files.length - keepFiles} more files)`);
 		}
 
-		// Recurse into subdirectories
 		if (subdir.subdirs.size > 0) {
 			const subLines = renderTree(subdir, subPrefix, depth + 1);
 			if (subLines) lines.push(subLines);
@@ -173,18 +183,19 @@ function renderTree(node: DirNode, prefix: string, depth: number): string {
 	if (remainingDirs > 0) {
 		const entries = Array.from(node.subdirs.entries()) as [string, DirNode][];
 		const remainingFiles = entries
-			.slice(MAX_DIRS)
+			.slice(keepDirs)
 			.reduce((sum, entry) => sum + countAllFiles(entry[1]), 0);
 		lines.push(`${indent}(+${remainingDirs} more dirs, ${remainingFiles} files)`);
 	}
 
-	// Root-level files
-	const sortedRootFiles = node.files.sort().slice(0, MAX_FILES_PER_DIR);
-	for (const file of sortedRootFiles) {
+	// Root-level files — adaptive too.
+	const sortedRootFiles = node.files.slice().sort();
+	const keepRootFiles = Math.max(1, optimalKCapped(sortedRootFiles, MAX_FILES_PER_DIR));
+	for (const file of sortedRootFiles.slice(0, keepRootFiles)) {
 		lines.push(`${indent}${file}`);
 	}
-	if (node.files.length > MAX_FILES_PER_DIR) {
-		lines.push(`${indent}(+${node.files.length - MAX_FILES_PER_DIR} more files)`);
+	if (node.files.length > keepRootFiles) {
+		lines.push(`${indent}(+${node.files.length - keepRootFiles} more files)`);
 	}
 
 	return lines.join("\n");
