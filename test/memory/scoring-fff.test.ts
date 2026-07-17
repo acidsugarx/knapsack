@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scoreAndRank } from "../../src/pillar2-memory/scoring.js";
 import type { MemoryEntry } from "../../src/core/types.js";
+import { scoreAndRank } from "../../src/pillar2-memory/scoring.js";
 
 function mem(opts: Partial<MemoryEntry> & { content: string }): MemoryEntry {
 	const now = Date.now();
@@ -44,7 +44,11 @@ describe("scoring — smart-case boost", () => {
 			// lowercase "jwt" — acronym mentioned in passing
 			mem({ id: "lower", content: "we use jwt for tokens in the api", importance: 0.5 }),
 			// uppercase "JWT" — proper noun form the user typed
-			mem({ id: "upper", content: "JWT bearer tokens are validated by auth middleware", importance: 0.5 }),
+			mem({
+				id: "upper",
+				content: "JWT bearer tokens are validated by auth middleware",
+				importance: 0.5,
+			}),
 		];
 		const ranked = await scoreAndRank("JWT", entries, entries, 2);
 		expect(ranked[0]?.entry.id).toBe("upper");
