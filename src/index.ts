@@ -104,7 +104,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (!db || !store) return;
-		await compressionHook(event, ctx, db, store, compressionRegistry);
+		return compressionHook(event, ctx, db, store, compressionRegistry);
 	});
 
 	// ── Pillar 2: Memory ───────────────────────────────────
