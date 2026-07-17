@@ -214,6 +214,7 @@ export function searchVaultWithFrontmatter(
 	query: string,
 	limit = 20,
 ): VaultSearchHit[] | null {
+	if (!vaultPath) return null;
 	const raw = searchVault(vaultPath, query, limit);
 	if (!raw) return null;
 

@@ -17,7 +17,7 @@
  * @module code-compression-ast
  */
 
-import type { Language, Parser } from "web-tree-sitter";
+import type { Language, Node, Parser } from "web-tree-sitter";
 import { sha256 } from "../../core/hash";
 import { estimateTokens, estimateTokensCode, savingsPercent } from "../../core/tokens";
 import type { CompressionResult } from "../../core/types";
@@ -150,7 +150,7 @@ export async function compressCodeAST(
 		"field_declaration_list",
 	]);
 
-	function walk(node: import("web-tree-sitter").SyntaxNode): void {
+	function walk(node: Node): void {
 		if (SKIP_INTO.has(node.type)) return;
 
 		let matched = false;
