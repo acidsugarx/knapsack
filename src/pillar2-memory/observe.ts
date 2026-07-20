@@ -56,7 +56,7 @@ export async function observeHook(
 			const errorMsg = extractErrorMessage(result);
 			if (errorMsg) {
 				observations.push({
-					content: `${toolName} failed: ${errorMsg.slice(0, 200)}`,
+					content: `${toolName} failed: ${normaliseErrorMessage(errorMsg).slice(0, 200)}`,
 					type: "gotcha",
 				});
 			}
@@ -91,6 +91,27 @@ function isToolError(result: unknown): boolean {
 		if (typeof r.error === "string" && r.error.length > 0) return true;
 	}
 	return false;
+}
+
+/**
+ * Normalise volatile bits of an error message so two errors with the same
+ * root cause dedup via the content_hash UPSERT (and consolidate via
+ * saveMemory's Jaccard merge). Strips timestamps, line numbers in stack
+ * traces, process IDs, and ephemeral request IDs.
+ */
+function normaliseErrorMessage(msg: string): string {
+	return msg
+		// ISO 8601 timestamps
+		.replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?\b/g, "<ts>")
+		// "at HH:MM:SS" wall-clock fragments
+		.replace(/\b\d{2}:\d{2}:\d{2}\b/g, "<time>")
+		// pid / ppid / tid numbers
+		.replace(/\b(?:pid|ppid|tid|request[_-]?id)[:=]\s*\d+/gi, "$1=<id>")
+		// `at file.ts:line:col` stack frames — keep the file, drop the line/col
+		.replace(/\bat\s+(\S+):(\d+):(\d+)/g, "at $1:<line>")
+		.replace(/\bat\s+(\S+):(\d+)/g, "at $1:<line>")
+		// bare large numbers (ports, allocation sizes) — keep short ones, e.g. status codes
+		.replace(/\b\d{5,}\b/g, "<num>");
 }
 
 /**

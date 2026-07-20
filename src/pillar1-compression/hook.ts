@@ -61,10 +61,19 @@ export async function compressionHook(
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
 
+	// Detect secrets on the ORIGINAL content (before tag protection) so a
+	// JWT inside <thinking> or <args> is not hidden from the detector by the
+	// placeholder swap. We re-run detectSecrets on the final body too — but
+	// capturing the original-content findings here means we keep the offsets
+	// the redactor needs to slice accurately.
+	const originalSecrets = detectSecrets(contentText);
+	const contentForPipeline =
+		originalSecrets.length > 0 ? redactSecrets(contentText, originalSecrets) : contentText;
+
 	// Compress via registry (auto-routing by content, fallback by tool name).
 	// Wrap with tag protection so XML/custom markers the model needs are not
 	// sliced apart by the compressor.
-	const { protectedText, tags } = protectTags(contentText);
+	const { protectedText, tags } = protectTags(contentForPipeline);
 	const result = await registry.compress(protectedText, { toolName, path });
 
 	// Always scan for high-confidence secrets — even when the output is too
@@ -96,7 +105,9 @@ export async function compressionHook(
 		store.dbPath.replace("/memory.db", ""),
 		store.vaultPath,
 		result.hash,
-		contentText,
+		// Cache the secret-redacted form so a future knapsack_retrieve cannot
+		// surface a JWT/private key that the model never saw in the first place.
+		contentForPipeline,
 	);
 
 	// Record in stats database

@@ -52,10 +52,14 @@ export function compactionHook(
 	const messageCount = preparation.messagesToSummarize?.length ?? 0;
 	const tokenCount = preparation.tokensBefore ?? 0;
 
+	const touched = extractTouchedFiles(preparation.messagesToSummarize);
+	const filesLine = touched.length > 0 ? `Files touched: ${touched.slice(0, 8).join(", ")}` : null;
+
 	const summary = [
 		`Session compacted (${reason})`,
 		`Messages summarized: ${messageCount}`,
 		`Tokens before compaction: ${tokenCount}`,
+		filesLine,
 		preparation.previousSummary ? `Previous summary was carried forward` : null,
 	]
 		.filter(Boolean)
@@ -68,4 +72,30 @@ export function compactionHook(
 		importance: 0.6,
 		sourceSession: store.sessionId ?? undefined,
 	});
+}
+
+/**
+ * Pull distinct file paths out of the messages being compacted so the
+ * summary memory carries at least a hint of what the session touched,
+ * not just token and message counts. Caps at a small N to avoid flooding
+ * the memory row on a wide-ranging session.
+ */
+function extractTouchedFiles(messages: unknown): string[] {
+	if (!Array.isArray(messages)) return [];
+	const paths = new Set<string>();
+	const pathRe = /(?:\.\/|[\w./-]+\.[a-z]{1,6})/gi;
+	for (const msg of messages) {
+		const text = typeof msg === "string" ? msg : JSON.stringify(msg);
+		for (const m of text.matchAll(pathRe)) {
+			const p = m[0];
+			if (!p) continue;
+			// Filter out obvious false positives (URLs, version strings).
+			if (p.includes("://")) continue;
+			if (/^\d+\./.test(p)) continue;
+			if (p.length < 3 || p.length > 80) continue;
+			paths.add(p);
+			if (paths.size >= 16) return Array.from(paths);
+		}
+	}
+	return Array.from(paths);
 }
