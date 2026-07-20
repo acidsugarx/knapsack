@@ -16,11 +16,16 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { execFileSync } from "node:child_process";
 import { Type } from "typebox";
-import { formatVaultHits, searchVaultWithFrontmatter } from "../bridge/obsidian";
+import { formatVaultHits, searchVault, searchVaultWithFrontmatter } from "../bridge/obsidian";
+import { writeNote } from "../bridge/obsidian-notes";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 import { retrieve } from "../pillar1-compression/ccr";
+import { checkDrift, formatDriftReport } from "../pillar2-memory/drift";
+import { embed, isAvailable, serializeEmbedding } from "../pillar2-memory/embeddings";
+import { scoreAndRank } from "../pillar2-memory/scoring";
 
 /**
  * Register all Knapsack tools with Pi.
@@ -132,7 +137,6 @@ export function registerTools(
 			// Also search Obsidian vault if available
 			let vaultResults: string[] = [];
 			if (store.vaultPath) {
-				const { searchVault } = await import("../bridge/obsidian");
 				vaultResults = searchVault(store.vaultPath, params.query, 5) ?? [];
 			}
 
@@ -144,7 +148,6 @@ export function registerTools(
 			}
 
 			// BM25 score and rank
-			const { scoreAndRank } = await import("../pillar2-memory/scoring");
 			const allEntries = db.getAllMemories(store.projectRoot ?? undefined);
 			const ranked = await scoreAndRank(params.query, candidates, allEntries, params.limit ?? 10);
 
@@ -250,9 +253,6 @@ export function registerTools(
 			// Generate embedding if available
 			let embedding: string | null = null;
 			try {
-				const { embed, serializeEmbedding, isAvailable } = await import(
-					"../pillar2-memory/embeddings"
-				);
 				if (isAvailable()) {
 					const vec = await embed(params.content);
 					if (vec) embedding = serializeEmbedding(vec);
@@ -394,7 +394,6 @@ export function registerTools(
 				// Count total markdown files in vault for context
 				let vaultFileCount = 0;
 				try {
-					const { execFileSync } = await import("node:child_process");
 					const count = execFileSync("find", [store.vaultPath, "-name", "*.md"], {
 						encoding: "utf-8",
 						timeout: 3000,
@@ -456,7 +455,6 @@ export function registerTools(
 				};
 			}
 
-			const { writeNote } = await import("../bridge/obsidian-notes");
 			const notePath = writeNote(store.vaultPath, params.title, params.content);
 
 			return {
@@ -529,7 +527,7 @@ export function registerTools(
 		parameters: Type.Object({
 			content: Type.Optional(
 				Type.String({
-					description: "Specific text to check. If omitted, checks nothing (use content param).",
+					description: "Optional text to scan for anchor violations. When omitted, the tool returns the current anchor list without scanning.",
 				}),
 			),
 		}),
@@ -543,7 +541,6 @@ export function registerTools(
 				};
 			}
 
-			const { checkDrift, formatDriftReport } = await import("../pillar2-memory/drift");
 			const detections = checkDrift(db, params.content ?? "", store.projectRoot ?? undefined);
 			const report = formatDriftReport(detections);
 

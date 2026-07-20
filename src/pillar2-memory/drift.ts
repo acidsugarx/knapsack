@@ -52,6 +52,28 @@ export interface DriftCheckResult {
  * @param project - Project scope filter
  * @returns Array of drift detections with matched signals
  */
+/** Words that, when appearing immediately before a signal, indicate the
+ * signal is being *negated or excluded* rather than violated. Avoids false
+ * positives like "no pgvector" or "pgvector-free" matching a "pgvector" signal. */
+const NEGATION_PREFIXES = ["no ", "not ", "without ", "avoid ", "never ", "non-"];
+
+/** Returns true if `signal` appears in `content` outside a negation context. */
+function signalMatches(content: string, signal: string): boolean {
+	let idx = 0;
+	while (true) {
+		const at = content.indexOf(signal, idx);
+		if (at < 0) return false;
+		// Look at the ~12 chars before the match for a negation prefix.
+		const before = content.slice(Math.max(0, at - 12), at);
+		const negated = NEGATION_PREFIXES.some((p) => before.endsWith(p));
+		// Also bail if the char right after the signal is `-` (e.g. "pgvector-free").
+		const after = content[at + signal.length] ?? "";
+		const hyphenated = after === "-";
+		if (!negated && !hyphenated) return true;
+		idx = at + signal.length;
+	}
+}
+
 export function checkDrift(db: KnapsackDB, content: string, project?: string): DriftCheckResult[] {
 	const anchors = getActiveAnchors(db, project);
 	if (anchors.length === 0) return [];
@@ -61,14 +83,24 @@ export function checkDrift(db: KnapsackDB, content: string, project?: string): D
 
 	for (const anchor of anchors) {
 		const matched = anchor.violationSignals.filter((signal) =>
-			contentLower.includes(signal.toLowerCase()),
+			signalMatches(contentLower, signal.toLowerCase()),
 		);
 		if (matched.length > 0) {
-			results.push({ anchor, matchedSignals: matched });
+			pushUnique(results, { anchor, matchedSignals: matched });
 		}
 	}
 
 	return results;
+}
+
+/** Dedupe helper — keeps the array shape stable if the same anchor matches twice. */
+function pushUnique(results: DriftCheckResult[], det: DriftCheckResult): void {
+	const existing = results.find((r) => r.anchor.id === det.anchor.id);
+	if (existing) {
+		for (const s of det.matchedSignals) if (!existing.matchedSignals.includes(s)) existing.matchedSignals.push(s);
+	} else {
+		results.push(det);
+	}
 }
 
 /**

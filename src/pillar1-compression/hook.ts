@@ -31,6 +31,7 @@ import { detectSecrets, redactSecrets } from "../core/security";
 import type { KnapsackStore } from "../core/types";
 import { cache } from "./ccr";
 import type { StrategyRegistry } from "./plugin";
+import { checkDrift } from "../pillar2-memory/drift";
 import { protectTags, restoreTags } from "./tag-protector";
 
 /**
@@ -111,7 +112,6 @@ export async function compressionHook(
 	});
 
 	// Auto-check drift on the output content
-	const { checkDrift } = await import("../pillar2-memory/drift");
 	const driftDetections = checkDrift(db, contentText, store.projectRoot ?? undefined);
 
 	const driftHint =

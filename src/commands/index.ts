@@ -11,11 +11,17 @@
  * @module commands
  */
 
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
+import { isAvailable } from "../pillar2-memory/embeddings";
+import {
+	analyzeSession,
+	formatAnalysis,
+	saveAnalysisToMemory,
+} from "../pillar2-memory/session-analysis";
 
 /**
  * Register all Knapsack slash commands with Pi.
@@ -53,7 +59,6 @@ export function registerCommands(
 			const sessionStats = db.getSessionCompressionStats(store.sessionId ?? "");
 			const allTime = db.getAllTimeStats();
 
-			const { isAvailable } = await import("../pillar2-memory/embeddings");
 			const embeddingsOn = isAvailable();
 
 			const lines = [
@@ -97,7 +102,6 @@ export function registerCommands(
 			}
 
 			// Find the session JSONL file
-			const { existsSync } = await import("node:fs");
 			const sessionDir = `${process.env.HOME ?? "~"}/.pi/agent/sessions`;
 			const sessionFile = store.sessionId ? findSessionFile(sessionDir, store.sessionId) : null;
 
@@ -107,9 +111,6 @@ export function registerCommands(
 			}
 
 			// Analyze
-			const { analyzeSession, saveAnalysisToMemory, formatAnalysis } = await import(
-				"../pillar2-memory/session-analysis"
-			);
 			const analysis = analyzeSession(sessionFile);
 			const saved = saveAnalysisToMemory(analysis, db, store);
 			const report = formatAnalysis(analysis);

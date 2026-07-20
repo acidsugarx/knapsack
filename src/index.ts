@@ -14,6 +14,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { mkdirSync } from "node:fs";
 import { discoverVault } from "./bridge/obsidian";
 import { registerCommands } from "./commands/index";
 import type { KnapsackDB } from "./core/database";
@@ -72,8 +73,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 		const home = process.env.KNAPSACK_HOME ?? `${process.env.HOME ?? "~"}/.knapsack`;
 		const dbPath = `${home}/memory.db`;
 
-		const fs = await import("node:fs");
-		fs.mkdirSync(home, { recursive: true });
+		mkdirSync(home, { recursive: true });
 
 		db = await createDB(dbPath);
 

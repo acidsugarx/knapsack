@@ -91,14 +91,21 @@ function toSignature(text: string): string {
 	return cleaned.length > SIG_MAX ? `${cleaned.slice(0, SIG_MAX - 1)}…` : cleaned;
 }
 
-let parserInstance: Parser | null = null;
-async function getParser(): Promise<Parser> {
-	if (!parserInstance) {
-		const { Parser } = await import("web-tree-sitter");
-		await Parser.init();
-		parserInstance = new Parser();
+/**
+ * Parser singleton — race-safe via a cached Promise. Two concurrent
+ * `compressCodeAST` calls share the same in-flight init instead of racing
+ * to assign `parserInstance`.
+ */
+let parserPromise: Promise<Parser> | null = null;
+function getParser(): Promise<Parser> {
+	if (!parserPromise) {
+		parserPromise = (async () => {
+			const { Parser } = await import("web-tree-sitter");
+			await Parser.init();
+			return new Parser();
+		})();
 	}
-	return parserInstance;
+	return parserPromise;
 }
 
 /**

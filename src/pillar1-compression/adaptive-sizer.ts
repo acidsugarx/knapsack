@@ -52,14 +52,6 @@ const KNEELE_MIN_DISTANCE = 0.05;
  * @param bias - Multiplier on the knee index (>1 = keep more, <1 = compress more aggressively)
  * @returns Recommended keep count; always `>= 1` when items is non-empty
  */
-/**
- * Compute the optimal number of items to keep from a sequence, by detecting
- * where adding more items stops contributing new information.
- *
- * @param items - Items in importance order (e.g. highest match count first)
- * @param bias - Multiplier on the knee index (>1 = keep more, <1 = compress more aggressively)
- * @returns Recommended keep count; always `>= 1` when items is non-empty
- */
 export function optimalK(items: string[], bias = 1.0): number {
 	const n = items.length;
 	if (n === 0) return 0;
@@ -99,12 +91,6 @@ export function optimalK(items: string[], bias = 1.0): number {
 	return Math.max(1, Math.min(n, biased));
 }
 
-/**
- * Convenience: pick how many items to keep, never exceeding a hard ceiling.
- *
- * The ceiling protects pathological inputs (10 000 unique items) where the
- * knee algorithm legitimately says "keep everything".
- */
 /**
  * Convenience: pick how many items to keep, never exceeding a hard ceiling.
  *

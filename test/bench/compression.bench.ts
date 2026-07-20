@@ -14,7 +14,9 @@
 
 import { describe, expect, it } from "vitest";
 import { compressBash } from "../../src/pillar1-compression/strategies/bash";
+import { compressCodeAST } from "../../src/pillar1-compression/strategies/code-ast";
 import { compressCode } from "../../src/pillar1-compression/strategies/code";
+import { compressDiff } from "../../src/pillar1-compression/strategies/diff";
 import { compressFind } from "../../src/pillar1-compression/strategies/find";
 import { compressGrep } from "../../src/pillar1-compression/strategies/grep";
 import { compressJson } from "../../src/pillar1-compression/strategies/json";
@@ -341,6 +343,63 @@ describe("Knapsack Compression Benchmarks", () => {
 
 		console.log(
 			`  json: ${result.originalTokens} → ${result.compressedTokens} tokens (${result.savingsPercent}%)`,
+		);
+	});
+
+	it("diff: multi-hunk kernel-style patch with priority declarations", () => {
+		const lines: string[] = [
+			"diff --git a/foo.ts b/foo.ts",
+			"index abc..def 100644",
+			"--- a/foo.ts",
+			"+++ b/foo.ts",
+		];
+		// 12 hunks: 4 carry function/class declarations (priority), 8 carry
+		// only comment edits (low score).
+		for (let i = 0; i < 8; i++) {
+			lines.push(`@@ -${100 + i * 10},3 +${100 + i * 10},3 @@`);
+			for (let c = 0; c < 5; c++) lines.push(` context line ${i}.${c}`);
+			lines.push(`-// old comment ${i}`);
+			lines.push(`+// new comment ${i}`);
+			for (let c = 0; c < 5; c++) lines.push(` tail context ${i}.${c}`);
+		}
+		for (let i = 0; i < 4; i++) {
+			lines.push(`@@ -${500 + i * 20},3 +${500 + i * 20},4 @@`);
+			lines.push(` context before decl ${i}`);
+			lines.push(`+export function newFunc_${i}(x: number): string { return String(x); }`);
+			lines.push(` context after decl ${i}`);
+		}
+		const output = lines.join("\n");
+		const result = compressDiff(output);
+		expect(result).not.toBeNull();
+		expect(result?.body).toContain("newFunc_0");
+		expect(result?.savingsPercent).toBeGreaterThan(40);
+		console.log(
+			`  diff: ${result?.originalTokens} → ${result?.compressedTokens} tokens (${result?.savingsPercent}%)`,
+		);
+	});
+
+	it("code-ast: 400-line C source extracts function signatures", async () => {
+		const lines: string[] = [
+			"#include <linux/sched.h>",
+			"#define SCHED_FEAT(name, enabled) (1UL << __SCHED_FEAT_##name) * enabled",
+		];
+		for (let i = 0; i < 12; i++) {
+			lines.push("");
+			lines.push(`static int func_${i}(struct task_struct *p, int flags) {`);
+			lines.push(`	int result = p->prio + flags;`);
+			lines.push(`	return result;`);
+			lines.push("}");
+		}
+		lines.push("struct rq { int cpu; struct task_struct *curr; };");
+		for (let i = 0; i < 300; i++) lines.push(`/* filler line ${i} */`);
+		const output = lines.join("\n");
+		const result = await compressCodeAST(output, "c");
+		expect(result).not.toBeNull();
+		expect(result?.body).toContain("func_0");
+		expect(result?.body).toContain("func_11");
+		expect(result?.savingsPercent).toBeGreaterThan(70);
+		console.log(
+			`  code-ast (C): ${result?.originalTokens} → ${result?.compressedTokens} tokens (${result?.savingsPercent}%)`,
 		);
 	});
 });

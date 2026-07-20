@@ -23,7 +23,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 /**
  * Obsidian vault configuration structure from obsidian.json.
@@ -51,10 +51,13 @@ interface ObsidianConfig {
  * @returns Absolute path to the vault root, or null if no vault found
  */
 export function discoverVault(): string | null {
-	// 1. Explicit override via environment variable
+	// 1. Explicit override via environment variable. resolve() so that a
+	//    relative value is anchored to cwd and downstream path checks see an
+	//    absolute root (matches the documented "absolute path" contract).
 	const envPath = process.env.KNAPSACK_OBSIDIAN_VAULT;
-	if (envPath && existsSync(envPath)) {
-		return envPath;
+	if (envPath) {
+		const resolved = resolve(envPath);
+		if (existsSync(resolved)) return resolved;
 	}
 
 	// 2. Auto-discovery from Obsidian config
