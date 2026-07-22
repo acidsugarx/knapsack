@@ -122,11 +122,16 @@ Committing:
 - Message format: `{feat,fix,test,docs,chore,refactor}[(v0.1,v0.2,security)]: <message>`.
   Message is informative and concise, lowercase, imperative mood.
 - Pre-commit hooks (biome + vitest + commitlint) must pass. Never use `--no-verify`.
+  Never bypass with `LEFTHOOK=0` either — it skips the same hooks and lets
+  formatting / lint / test failures reach CI. The repo also runs a
+  `pre-push` hook as a safety net (biome + tsc + vitest), but do not rely
+  on it — fix the root cause instead of routing around the gate.
 
 Never run (destroys work or bypasses checks):
 
 - `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash`
 - `git add -A`, `git add .`, `git commit --no-verify`
+- `LEFTHOOK=0 git commit ...` (same effect as `--no-verify`)
 - `git push --force`
 
 If rebase conflicts occur:

@@ -12,3 +12,16 @@ commit-msg:
   commands:
     commitlint:
       run: npx commitlint --edit {1}
+
+# Safety net for `LEFTHOOK=0 git commit ...` bypasses: even if pre-commit was
+# skipped, the push is rejected when biome / tsc / tests fail. This is the
+# last line of defence before CI gets a chance to flag the same issues.
+pre-push:
+  commands:
+    biome:
+      run: npx biome check .
+    typecheck:
+      run: npx tsc --noEmit
+    tests:
+      glob: "*.ts"
+      run: npx vitest run --passWithNoTests

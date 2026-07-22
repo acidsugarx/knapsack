@@ -58,8 +58,12 @@ On `npm install`, lefthook installs:
 |---|---|
 | `pre-commit` | `biome check` (lint + format) + `vitest run` |
 | `commit-msg` | `commitlint` (conventional commits) |
+| `pre-push` | `biome check` + `tsc --noEmit` + `vitest run` (safety net for `LEFTHOOK=0` bypasses) |
 
-Never bypass with `--no-verify` — if a hook is genuinely broken, fix it in `lefthook.yml` first.
+Never bypass with `--no-verify` or `LEFTHOOK=0` — both skip the same gates
+and let formatting / lint / test failures reach CI. The pre-push hook is a
+safety net, not a substitute. If a hook is genuinely broken, fix it in
+`lefthook.yml` first.
 
 ## Project structure
 
