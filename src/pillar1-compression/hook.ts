@@ -29,9 +29,9 @@ import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-codin
 import type { KnapsackDB } from "../core/database";
 import { detectSecrets, redactSecrets } from "../core/security";
 import type { KnapsackStore } from "../core/types";
+import { checkDrift } from "../pillar2-memory/drift";
 import { cache } from "./ccr";
 import type { StrategyRegistry } from "./plugin";
-import { checkDrift } from "../pillar2-memory/drift";
 import { protectTags, restoreTags } from "./tag-protector";
 
 /**

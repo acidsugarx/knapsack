@@ -21,11 +21,7 @@ describe("drift substring matching", () => {
 		}
 	});
 
-	async function seedAnchor(
-		statement: string,
-		signals: string[],
-		project?: string,
-	): Promise<void> {
+	async function seedAnchor(statement: string, signals: string[], project?: string): Promise<void> {
 		const db = await createDB(join(tmpHome, "mem.db"));
 		db.saveMemory({
 			content: `[anchor] ${statement} | signals: ${signals.join(", ")}`,

@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 import { compressBash } from "../../src/pillar1-compression/strategies/bash";
-import { compressCodeAST } from "../../src/pillar1-compression/strategies/code-ast";
 import { compressCode } from "../../src/pillar1-compression/strategies/code";
+import { compressCodeAST } from "../../src/pillar1-compression/strategies/code-ast";
 import { compressDiff } from "../../src/pillar1-compression/strategies/diff";
 import { compressFind } from "../../src/pillar1-compression/strategies/find";
 import { compressGrep } from "../../src/pillar1-compression/strategies/grep";

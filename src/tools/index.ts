@@ -15,8 +15,8 @@
  * @module tools
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { formatVaultHits, searchVault, searchVaultWithFrontmatter } from "../bridge/obsidian";
 import { writeNote } from "../bridge/obsidian-notes";
@@ -527,7 +527,8 @@ export function registerTools(
 		parameters: Type.Object({
 			content: Type.Optional(
 				Type.String({
-					description: "Optional text to scan for anchor violations. When omitted, the tool returns the current anchor list without scanning.",
+					description:
+						"Optional text to scan for anchor violations. When omitted, the tool returns the current anchor list without scanning.",
 				}),
 			),
 		}),

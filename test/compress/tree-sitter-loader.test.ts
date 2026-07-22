@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { detectLanguageFromExt, loadLanguage } from "../../src/pillar1-compression/tree-sitter-loader.js";
+import {
+	detectLanguageFromExt,
+	loadLanguage,
+} from "../../src/pillar1-compression/tree-sitter-loader.js";
 
 describe("detectLanguageFromExt", () => {
 	it("maps common source extensions to grammar ids", () => {

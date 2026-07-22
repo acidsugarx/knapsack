@@ -13,8 +13,8 @@
  * @packageDocumentation
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { mkdirSync } from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discoverVault } from "./bridge/obsidian";
 import { registerCommands } from "./commands/index";
 import type { KnapsackDB } from "./core/database";

@@ -100,18 +100,20 @@ function isToolError(result: unknown): boolean {
  * traces, process IDs, and ephemeral request IDs.
  */
 function normaliseErrorMessage(msg: string): string {
-	return msg
-		// ISO 8601 timestamps
-		.replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?\b/g, "<ts>")
-		// "at HH:MM:SS" wall-clock fragments
-		.replace(/\b\d{2}:\d{2}:\d{2}\b/g, "<time>")
-		// pid / ppid / tid numbers
-		.replace(/\b(?:pid|ppid|tid|request[_-]?id)[:=]\s*\d+/gi, "$1=<id>")
-		// `at file.ts:line:col` stack frames — keep the file, drop the line/col
-		.replace(/\bat\s+(\S+):(\d+):(\d+)/g, "at $1:<line>")
-		.replace(/\bat\s+(\S+):(\d+)/g, "at $1:<line>")
-		// bare large numbers (ports, allocation sizes) — keep short ones, e.g. status codes
-		.replace(/\b\d{5,}\b/g, "<num>");
+	return (
+		msg
+			// ISO 8601 timestamps
+			.replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?\b/g, "<ts>")
+			// "at HH:MM:SS" wall-clock fragments
+			.replace(/\b\d{2}:\d{2}:\d{2}\b/g, "<time>")
+			// pid / ppid / tid numbers
+			.replace(/\b(?:pid|ppid|tid|request[_-]?id)[:=]\s*\d+/gi, "$1=<id>")
+			// `at file.ts:line:col` stack frames — keep the file, drop the line/col
+			.replace(/\bat\s+(\S+):(\d+):(\d+)/g, "at $1:<line>")
+			.replace(/\bat\s+(\S+):(\d+)/g, "at $1:<line>")
+			// bare large numbers (ports, allocation sizes) — keep short ones, e.g. status codes
+			.replace(/\b\d{5,}\b/g, "<num>")
+	);
 }
 
 /**

@@ -97,7 +97,8 @@ export function checkDrift(db: KnapsackDB, content: string, project?: string): D
 function pushUnique(results: DriftCheckResult[], det: DriftCheckResult): void {
 	const existing = results.find((r) => r.anchor.id === det.anchor.id);
 	if (existing) {
-		for (const s of det.matchedSignals) if (!existing.matchedSignals.includes(s)) existing.matchedSignals.push(s);
+		for (const s of det.matchedSignals)
+			if (!existing.matchedSignals.includes(s)) existing.matchedSignals.push(s);
 	} else {
 		results.push(det);
 	}
