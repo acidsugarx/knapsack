@@ -1,0 +1,15 @@
+{
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Bash|Read|Grep|Glob",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "npx tsx \"${CLAUDE_PLUGIN_ROOT}/src/adapters/claude/compress-hook.ts\""
+					}
+				]
+			}
+		]
+	}
+}
