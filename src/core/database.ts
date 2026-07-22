@@ -107,6 +107,7 @@ const FTS_TRIGGERS = [
 
 // ── Row mapping ─────────────────────────────────────────
 
+/** Map a SQLite row (snake_case columns) to a {@link MemoryEntry} (camelCase fields). */
 function rowToMemory(row: Record<string, unknown>): MemoryEntry {
 	return {
 		id: String(row.id ?? ""),
@@ -126,6 +127,7 @@ function rowToMemory(row: Record<string, unknown>): MemoryEntry {
 	};
 }
 
+/** Map a SQLite row to a {@link CompressionEntry}. */
 function rowToCompression(row: Record<string, unknown>): CompressionEntry {
 	return {
 		id: String(row.id ?? ""),
@@ -141,6 +143,11 @@ function rowToCompression(row: Record<string, unknown>): CompressionEntry {
 	};
 }
 
+/**
+ * Execute a SQL query and return rows as objects. Binds `?` placeholders
+ * manually (sql.js does not support parameterised exec in all builds).
+ * FTS5 syntax errors are swallowed and return empty.
+ */
 function execRows(db: Database, sql: string, params?: unknown[]): Record<string, unknown>[] {
 	try {
 		// Bind parameters into the SQL string for sql.js compatibility
@@ -257,6 +264,7 @@ function fuzzyMatchAnyTerm(terms: string[], entries: MemoryEntry[]): MemoryEntry
 
 // ── Public API ─────────────────────────────────────────
 
+/** Public interface for the Knapsack database — all memory and compression operations. */
 export interface KnapsackDB {
 	saveMemory(input: {
 		content: string;
@@ -392,6 +400,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			saveTimer = null;
 		}, 2000);
 	}
+	/** Flush the database to disk immediately, bypassing the 2s debounce. */
 	function saveNow(): void {
 		if (saveTimer) {
 			clearTimeout(saveTimer);
@@ -599,13 +608,22 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 
 		pruneMemories(maxAge = 30 * 24 * 60 * 60 * 1000, minImportance = 0.3) {
 			const cutoff = Date.now() - maxAge;
-			const rows = execRows(
-				db,
-				"DELETE FROM memory WHERE recency < ? AND importance < ? AND access_count <= 1",
-				[cutoff, minImportance],
+			// Count rows to delete before running the DELETE so we return an accurate count.
+			const before = Number(
+				(
+					execOne(
+						db,
+						"SELECT COUNT(*) as cnt FROM memory WHERE recency < ? AND importance < ? AND access_count <= 1",
+						[cutoff, minImportance],
+					) as Record<string, unknown>
+				)?.cnt ?? 0,
 			);
+			db.run("DELETE FROM memory WHERE recency < ? AND importance < ? AND access_count <= 1", [
+				cutoff,
+				minImportance,
+			]);
 			save();
-			return rows.length;
+			return before;
 		},
 
 		consolidateMemories() {

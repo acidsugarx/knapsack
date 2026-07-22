@@ -23,6 +23,7 @@ import { getProjectRoot } from "./core/project";
 import type { KnapsackStore } from "./core/types";
 import { createDefaultRegistry } from "./pillar1-compression/default-registry";
 import { compressionHook } from "./pillar1-compression/hook";
+import { outputCompressionHook } from "./pillar1-compression/output-hook";
 import { compactionHook } from "./pillar2-memory/compaction";
 import { memoryInjectHook } from "./pillar2-memory/inject";
 import { observeHook } from "./pillar2-memory/observe";
@@ -69,6 +70,12 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	// ── Lifecycle: startup ──────────────────────────────────
 
+	/**
+	 * session_start — fires once when a Pi session opens. Creates the
+	 * Knapsack home directory, opens the SQLite database, initialises
+	 * optional embeddings, discovers the Obsidian vault, and populates
+	 * the runtime store. Sets the Pi status bar to reflect readiness.
+	 */
 	pi.on("session_start", async (_event, ctx) => {
 		const home = process.env.KNAPSACK_HOME ?? `${process.env.HOME ?? "~"}/.knapsack`;
 		const dbPath = `${home}/memory.db`;
@@ -103,13 +110,36 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	// ── Pillar 1: Compression ──────────────────────────────
 
+	/**
+	 * tool_result — fires after every tool execution. Delegates to
+	 * {@link compressionHook} which auto-detects content type, compresses
+	 * large outputs, caches originals in CCR, records stats, and checks
+	 * for decision drift. Returns modified content or undefined (passthrough).
+	 */
 	pi.on("tool_result", async (event, ctx) => {
 		if (!db || !store) return;
 		return compressionHook(event, ctx, db, store, compressionRegistry);
 	});
 
+	/**
+	 * context — fires before each LLM call with the full message list.
+	 * Delegates to {@link outputCompressionHook} which compresses old
+	 * assistant messages (strip boilerplate, collapse whitespace, truncate
+	 * very long blocks) to reduce input tokens on subsequent turns. The
+	 * most recent 2 assistant messages are always left untouched.
+	 */
+	pi.on("context", (event) => {
+		return outputCompressionHook(event);
+	});
+
 	// ── Pillar 2: Memory ───────────────────────────────────
 
+	/**
+	 * before_agent_start — fires after the user submits a prompt, before
+	 * the agent loop begins. Appends Knapsack usage guidance to the system
+	 * prompt, then injects task-relevant memories via {@link memoryInjectHook}.
+	 * Bytes are stable across turns so Pi's prompt cache stays hot.
+	 */
 	pi.on("before_agent_start", async (event, _ctx) => {
 		if (!db || !store) return;
 
@@ -125,11 +155,22 @@ export default async function knapsack(pi: ExtensionAPI) {
 		return { systemPrompt };
 	});
 
+	/**
+	 * turn_end — fires after each agent turn completes. Delegates to
+	 * {@link observeHook} which auto-saves failed tool calls as gotchas
+	 * so the model doesn't repeat the same mistake in future sessions.
+	 */
 	pi.on("turn_end", async (event, _ctx) => {
 		if (!db || !store) return;
 		await observeHook(event, db, store);
 	});
 
+	/**
+	 * session_before_compact — fires right before Pi compacts the context
+	 * window. Delegates to {@link compactionHook} which persists a session
+	 * state summary to memory, so the model retains awareness of what was
+	 * being worked on after the context reset.
+	 */
 	pi.on("session_before_compact", async (event, _ctx) => {
 		if (!db || !store) return;
 		return compactionHook(event, db, store);
@@ -137,6 +178,11 @@ export default async function knapsack(pi: ExtensionAPI) {
 
 	// ── Lifecycle: shutdown ─────────────────────────────────
 
+	/**
+	 * session_shutdown — fires when the Pi session closes. Prunes old
+	 * low-importance memories (30 days, importance < 0.3, access ≤ 1),
+	 * closes the SQLite database (flushing to disk), and nulls the store.
+	 */
 	pi.on("session_shutdown", async () => {
 		if (db) {
 			db.pruneMemories();

@@ -23,6 +23,7 @@ import { writeNote } from "../bridge/obsidian-notes";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 import { retrieve } from "../pillar1-compression/ccr";
+import { outputCache } from "../pillar1-compression/output-cache";
 import { checkDrift, formatDriftReport } from "../pillar2-memory/drift";
 import { embed, isAvailable, serializeEmbedding } from "../pillar2-memory/embeddings";
 import { scoreAndRank } from "../pillar2-memory/scoring";
@@ -42,7 +43,11 @@ export function registerTools(
 	getDB: () => KnapsackDB | null,
 	getStore: () => KnapsackStore | null,
 ): void {
-	// ── knapsack_retrieve ──────────────────────────────────
+	/**
+	 * knapsack_retrieve — fetches the full original of a previously compressed
+	 * tool output by hash from the CCR cache. Registered as a Pi tool so the
+	 * LLM can call it on demand when the compressed form is missing a detail.
+	 */
 	pi.registerTool({
 		name: "knapsack_retrieve",
 		label: "Knapsack Retrieve",
@@ -51,6 +56,10 @@ export function registerTools(
 			"Call ONLY when the compressed output is missing information critical to your next step — " +
 			"for summaries, counts, structure overviews, and listings the compressed output is sufficient. " +
 			"Most tasks do not need this.",
+		promptSnippet: "Fetch original of a compressed tool output by hash",
+		promptGuidelines: [
+			"Use knapsack_retrieve only when a compressed tool output is missing a specific detail you need to proceed — not for summaries, counts, or structure overviews.",
+		],
 		parameters: Type.Object({
 			hash: Type.String({
 				description: "Content hash from the compression footer (e.g., a1b2c3d4e5f6)",
@@ -96,7 +105,11 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_search ────────────────────────────────────
+	/**
+	 * knapsack_search — searches persistent memory (BM25) and the Obsidian
+	 * vault, returning ranked results. Registered as a Pi tool so the LLM
+	 * can check past decisions and gotchas before editing unfamiliar code.
+	 */
 	pi.registerTool({
 		name: "knapsack_search",
 		label: "Knapsack Search",
@@ -104,6 +117,10 @@ export function registerTools(
 			"Search Knapsack's persistent memory using BM25 keyword scoring (token overlap + IDF). " +
 			"Matches by shared terms - 'postgres pool' finds entries about Postgres connection pooling. " +
 			"Results ranked by relevance × importance × recency.",
+		promptSnippet: "Search persistent memory + Obsidian vault by keywords",
+		promptGuidelines: [
+			"Use knapsack_search when starting work in an unfamiliar codebase or when the user references a past decision, convention, or pitfall.",
+		],
 		parameters: Type.Object({
 			query: Type.String({
 				description: "What to search for (topic, technology, error message, etc.)",
@@ -187,7 +204,11 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_save ──────────────────────────────────────
+	/**
+	 * knapsack_save — persists a fact, decision, gotcha, or preference to
+	 * the SQLite memory store. Auto-merges near-duplicates (Jaccard ≥ 0.75).
+	 * Registered as a Pi tool so the LLM can save learnings for future sessions.
+	 */
 	pi.registerTool({
 		name: "knapsack_save",
 		label: "Knapsack Save",
@@ -195,6 +216,10 @@ export function registerTools(
 			"Save a fact, decision, gotcha, convention, or preference to Knapsack's persistent memory. " +
 			"This memory will be available in future sessions. Use after making important decisions, " +
 			"discovering gotchas, or when the user tells you to remember something.",
+		promptSnippet: "Save a decision, gotcha, or preference to persistent memory",
+		promptGuidelines: [
+			"Use knapsack_save when the user says 'remember this' / 'note' / 'keep in mind', or when you discover a non-obvious pitfall or root cause worth keeping for future sessions.",
+		],
 		parameters: Type.Object({
 			content: Type.String({ description: "What to remember (be specific and concise)" }),
 			type: Type.String({
@@ -291,12 +316,16 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_stats ─────────────────────────────────────
+	/**
+	 * knapsack_stats — shows compression and memory statistics (session +
+	 * all-time). Registered as a Pi tool for on-demand diagnostics.
+	 */
 	pi.registerTool({
 		name: "knapsack_stats",
 		label: "Knapsack Stats",
 		description:
 			"Show Knapsack compression and memory statistics — tokens saved, compressions performed, memory entries stored.",
+		promptSnippet: "Show compression and memory statistics",
 		parameters: Type.Object({}),
 		async execute(): Promise<any> {
 			const db = getDB();
@@ -310,6 +339,7 @@ export function registerTools(
 
 			const sessionStats = db.getSessionCompressionStats(store.sessionId ?? "");
 			const allTime = db.getAllTimeStats();
+			const cacheStats = outputCache.stats();
 
 			const lines = [
 				"## 🎒 Knapsack Stats",
@@ -322,6 +352,9 @@ export function registerTools(
 				`Compressions: ${allTime.compressionCount}`,
 				`Memory entries: ${allTime.memoryCount}`,
 				`Total tokens saved: ${allTime.totalOriginalTokens - allTime.totalCompressedTokens} (${allTime.totalSavingsPercent}%)`,
+				"",
+				"### Output cache",
+				`Hits: ${cacheStats.hits} · Misses: ${cacheStats.misses} · Size: ${cacheStats.size}/${cacheStats.maxSize}`,
 				store.vaultPath ? `\nObsidian vault: ${store.vaultPath}` : "",
 			];
 
@@ -332,11 +365,15 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_forget ────────────────────────────────────
+	/**
+	 * knapsack_forget — deletes a memory entry by ID. Registered as a Pi
+	 * tool so the LLM can remove outdated or incorrect memories.
+	 */
 	pi.registerTool({
 		name: "knapsack_forget",
 		label: "Knapsack Forget",
 		description: "Delete a memory entry by its ID. Use when a memory is outdated or incorrect.",
+		promptSnippet: "Delete an outdated memory entry by ID",
 		parameters: Type.Object({
 			id: Type.String({ description: "Memory entry ID to delete" }),
 		}),
@@ -362,7 +399,11 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_obsidian ──────────────────────────────────
+	/**
+	 * knapsack_obsidian — searches the Obsidian vault via ripgrep, returning
+	 * matches with frontmatter. Registered as a Pi tool so the LLM can tap
+	 * into the user's personal knowledge base.
+	 */
 	pi.registerTool({
 		name: "knapsack_obsidian",
 		label: "Knapsack Obsidian",
@@ -370,6 +411,7 @@ export function registerTools(
 			"Search across your Obsidian vault for relevant notes. " +
 			"Use this to tap into your personal knowledge base — notes, research, " +
 			"decisions, and documentation stored in Obsidian.",
+		promptSnippet: "Search Obsidian vault for relevant notes",
 		parameters: Type.Object({
 			query: Type.String({ description: "Search query for Obsidian vault" }),
 			limit: Type.Optional(Type.Number({ default: 20, description: "Max results (default: 20)" })),
@@ -429,13 +471,18 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_note ─────────────────────────────────────
+	/**
+	 * knapsack_note — writes or appends to a markdown note in the Obsidian
+	 * vault root. Registered as a Pi tool so the LLM can persist knowledge
+	 * in the user's Zettelkasten.
+	 */
 	pi.registerTool({
 		name: "knapsack_note",
 		label: "Knapsack Note",
 		description:
 			"Write or append to an Obsidian note. Notes live in vault root, no frontmatter. " +
 			"Use [[wikilinks]] inline for connections. If note exists, content is appended.",
+		promptSnippet: "Write or append to an Obsidian note",
 		promptGuidelines: [
 			"Use knapsack_note to save things you learn. " +
 				"Write [[wikilinks]] inline to connect ideas. Keep notes atomic.",
@@ -469,7 +516,11 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_anchor ──────────────────────────────────
+	/**
+	 * knapsack_anchor — declares a decision anchor with violation signals.
+	 * Future tool outputs are auto-scanned for drift. Registered as a Pi
+	 * tool so the LLM can enforce architectural decisions across sessions.
+	 */
 	pi.registerTool({
 		name: "knapsack_anchor",
 		label: "Knapsack Anchor",
@@ -477,6 +528,10 @@ export function registerTools(
 			"Declare a decision anchor with violation signals. Knapsack will monitor " +
 			"future tool outputs and flag drift if the signals appear. " +
 			"Example: statement='Use sql.js not better-sqlite3' signals=['better-sqlite3','node-gyp'].",
+		promptSnippet: "Declare a decision anchor with drift monitoring",
+		promptGuidelines: [
+			"Use knapsack_anchor for architectural decisions that must not be violated — it monitors future tool outputs and flags drift automatically.",
+		],
 		parameters: Type.Object({
 			statement: Type.String({
 				description: "The decision statement (e.g., 'Use sql.js, not better-sqlite3')",
@@ -517,13 +572,18 @@ export function registerTools(
 		},
 	});
 
-	// ── knapsack_drift ────────────────────────────────────
+	/**
+	 * knapsack_drift — checks recent tool outputs for violation signals
+	 * from declared anchors. Registered as a Pi tool so the LLM can
+	 * proactively verify decision compliance.
+	 */
 	pi.registerTool({
 		name: "knapsack_drift",
 		label: "Knapsack Drift",
 		description:
 			"Check for decision drift — scans recent tool outputs for violation signals " +
 			"from declared anchors. Returns list of anchors with matched signals.",
+		promptSnippet: "Check for decision drift against declared anchors",
 		parameters: Type.Object({
 			content: Type.Optional(
 				Type.String({

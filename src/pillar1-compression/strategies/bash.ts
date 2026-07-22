@@ -19,6 +19,7 @@ function stripAnsi(text: string): string {
 
 // ── Line deduplication ─────────────────────────────────
 
+/** Deduplicate lines, returning each unique line with its occurrence count, sorted by frequency. */
 function deduplicateLines(lines: string[]): { line: string; count: number }[] {
 	const map = new Map<string, number>();
 	for (const line of lines) {
@@ -49,6 +50,7 @@ const TEMPLATE_NORM_RE = [
 	[/\b\d+\b/g, "N"],
 ] as const;
 
+/** Replace volatile tokens (uuids, hex, IPs, numbers) with placeholders for template matching. */
 function normalizeTemplate(line: string): string {
 	let out = line;
 	for (const [re, replacement] of TEMPLATE_NORM_RE) {
@@ -66,6 +68,10 @@ interface TemplateRun {
 	count: number;
 }
 
+/**
+ * Walk lines, group consecutive same-template runs, return templates and
+ * the remaining (non-template) lines in original order.
+ */
 /**
  * Walk lines, group consecutive same-template runs, return templates and
  * the remaining (non-template) lines in original order.
@@ -91,6 +97,7 @@ function extractTemplates(lines: string[]): { templates: TemplateRun[]; rest: st
 
 // ── Severity detection ─────────────────────────────────
 
+/** Classify a line by severity: error, warning, info, or other. */
 function classifyLine(line: string): "error" | "warning" | "info" | "other" {
 	const lower = line.toLowerCase();
 	// Match actual error lines (ERROR/WARN prefix or stack traces), skip lines that just mention "error" in passing
@@ -104,6 +111,7 @@ function classifyLine(line: string): "error" | "warning" | "info" | "other" {
 
 // ── Progress summarization ─────────────────────────────
 
+/** Summarise info/progress lines into a compact "compiled N, processed N" string. */
 function summarizeProgress(lines: string[]): string | null {
 	if (lines.length === 0) return null;
 
@@ -123,6 +131,7 @@ function summarizeProgress(lines: string[]): string | null {
 
 // ── Main compression ───────────────────────────────────
 
+/** Per-section size caps for bash output compression. */
 export interface BashCompressOptions {
 	/** Max lines in errors section */
 	maxErrors?: number;
@@ -132,6 +141,18 @@ export interface BashCompressOptions {
 	maxTail?: number;
 }
 
+/**
+ * Compress bash output by stripping ANSI, mining log templates (Drain-style),
+ * classifying severity, and collapsing repetitive lines.
+ *
+ * @param stdout - Combined stdout text. If `stderr` is also supplied it is
+ * prepended so that error-traces and the actual program output are classified
+ * together.
+ * @param stderr - Optional stderr; prepended onto `stdout` before classification.
+ * @param exitCode - Process exit code surfaced in the compressed header.
+ * @param options - Per-section size caps.
+ * @returns Compression result with templated, errors, warnings, progress, and tail sections.
+ */
 export function compressBash(
 	/**
 	 * Combined stdout text. If `stderr` is also supplied it is prepended

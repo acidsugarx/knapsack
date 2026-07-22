@@ -19,6 +19,7 @@
 import type { MemoryEntry } from "../core/types";
 import { cosineSimilarity, deserializeEmbedding, embed, isAvailable } from "./embeddings";
 
+/** Common English stop words excluded from BM25 tokenisation to reduce noise. */
 export const STOP_WORDS = new Set([
 	"the",
 	"a",
@@ -92,6 +93,7 @@ export const STOP_WORDS = new Set([
 	"does",
 ]);
 
+/** Scored memory entry — the output of {@link scoreAndRank} with breakdown by signal. */
 export interface ScoredMemory {
 	entry: MemoryEntry;
 	relevance: number;
@@ -203,6 +205,7 @@ export async function scoreAndRank(
 	return scored.slice(0, limit);
 }
 
+/** Tokenise text into lowercase terms, filtering stop words and short tokens. */
 function tokenize(text: string): string[] {
 	return text
 		.toLowerCase()
@@ -210,6 +213,7 @@ function tokenize(text: string): string[] {
 		.filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 }
 
+/** Compute BM25 IDF scores for query terms across all memory entries. */
 function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, number> {
 	const N = allEntries.length;
 	if (N === 0) return new Map();

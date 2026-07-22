@@ -16,6 +16,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
+import { outputCache } from "../pillar1-compression/output-cache";
 import { isAvailable } from "../pillar2-memory/embeddings";
 import {
 	analyzeSession,
@@ -58,6 +59,7 @@ export function registerCommands(
 
 			const sessionStats = db.getSessionCompressionStats(store.sessionId ?? "");
 			const allTime = db.getAllTimeStats();
+			const cacheStats = outputCache.stats();
 
 			const embeddingsOn = isAvailable();
 
@@ -78,6 +80,9 @@ export function registerCommands(
 				`  Compressions: ${allTime.compressionCount}`,
 				`  Memories: ${allTime.memoryCount}`,
 				`  Total saved: ${allTime.totalOriginalTokens - allTime.totalCompressedTokens} tokens (${allTime.totalSavingsPercent}%)`,
+				"",
+				"Output cache:",
+				`  Hits: ${cacheStats.hits} · Misses: ${cacheStats.misses} · Size: ${cacheStats.size}/${cacheStats.maxSize}`,
 			];
 
 			ctx.ui.notify(lines.join("\n"), "info");

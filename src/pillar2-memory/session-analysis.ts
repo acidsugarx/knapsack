@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 
+/** Internal representation of a tool call + its result on the session timeline. */
 interface ToolEvent {
 	id: string;
 	tool: string;
@@ -31,6 +32,7 @@ interface ToolEvent {
 	timestamp: string;
 }
 
+/** Result of analysing a session JSONL — tool call stats, failure patterns, and suggested memories. */
 export interface SessionAnalysis {
 	totalToolCalls: number;
 	failedTools: Array<{ tool: string; error: string; timestamp: string }>;
@@ -38,6 +40,12 @@ export interface SessionAnalysis {
 	suggestions: Array<{ content: string; type: string; importance: number }>;
 }
 
+/**
+ * Parse a Pi session JSONL file and extract learnings (corrections, repeated failures, frequent files).
+ *
+ * @param sessionPath - Absolute path to the `.jsonl` session file.
+ * @returns Analysis with total tool calls, failures, patterns, and memory suggestions.
+ */
 export function analyzeSession(sessionPath: string): SessionAnalysis {
 	const analysis: SessionAnalysis = {
 		totalToolCalls: 0,
@@ -288,6 +296,7 @@ function findFrequentFiles(timeline: ToolEvent[]): string[] {
 
 // ── Helpers ─────────────────────────────────────────────
 
+/** Extract the first human-readable error text from a tool result content block. */
 function extractErrorText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (Array.isArray(content)) {
@@ -302,6 +311,7 @@ function extractErrorText(content: unknown): string {
 	return "Unknown error";
 }
 
+/** Extract concatenated text from a content block (string or array of text blocks). */
 function extractText(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (Array.isArray(content)) {
@@ -316,6 +326,14 @@ function extractText(content: unknown): string {
 	return "";
 }
 
+/**
+ * Save analysis suggestions to the Knapsack memory database.
+ *
+ * @param analysis - Output of {@link analyzeSession}.
+ * @param db - Open KnapsackDB handle.
+ * @param store - Runtime store (project root + session id).
+ * @returns Number of memory entries saved.
+ */
 export function saveAnalysisToMemory(
 	analysis: SessionAnalysis,
 	db: KnapsackDB,
@@ -338,6 +356,12 @@ export function saveAnalysisToMemory(
 	return saved;
 }
 
+/**
+ * Format an analysis result as a human-readable string for `/knapsack-learn` output.
+ *
+ * @param analysis - Output of {@link analyzeSession}.
+ * @returns Multi-line string with tool call stats, patterns, and saved learnings.
+ */
 export function formatAnalysis(analysis: SessionAnalysis): string {
 	const lines: string[] = [
 		"🎒 Knapsack Session Analysis",

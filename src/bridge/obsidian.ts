@@ -157,6 +157,7 @@ export function searchVault(vaultPath: string | null, query: string, limit = 20)
 
 // ── Frontmatter-aware search ────────────────────────────────────────────────
 
+/** A vault search hit enriched with parsed YAML frontmatter from the matching note. */
 export interface VaultSearchHit {
 	/** Match string in "file:line:content" format (unchanged from searchVault). */
 	raw: string;

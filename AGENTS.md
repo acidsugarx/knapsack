@@ -80,6 +80,26 @@ not just untidy.
 Exceptions require an explicit `// intentionally undocumented because ...` comment on the
 same symbol. Unexplained missing docs fail review.
 
+### Enforcement
+
+JSDoc compliance is enforced automatically by `scripts/check-jsdoc.mjs`. The
+checker runs:
+
+- On every commit (lefthook pre-commit hook, alongside biome + vitest)
+- On every push (lefthook pre-push hook, alongside biome + tsc + vitest)
+- Manually via `npm run check:jsdoc`
+
+The checker verifies:
+1. Every `.ts` file in `src/` has a `@module` block (`.d.ts` ambient
+   declarations are exempt)
+2. Every `export function`, `export class`, `export interface`, `export type`,
+   `export const` has a `/** ... */` JSDoc block immediately before it
+3. Every `pi.on(...)`, `pi.registerTool(...)`, `pi.registerCommand(...)` call
+   has a JSDoc block explaining when it fires and what it mutates
+
+If the checker reports a violation, fix the JSDoc before committing. Do not
+bypass with `LEFTHOOK=0` or `--no-verify`.
+
 ## Security (Critical for Knapsack)
 
 Knapsack processes untrusted LLM output and writes to the user's filesystem.
@@ -97,9 +117,10 @@ Every new code path must respect these rules:
 ## Commands
 
 - After code changes (not docs): `npm run check` (biome lint + format). Fix all errors and warnings.
-- After code changes: `npm test` (vitest). All 35 tests must pass.
+- After code changes: `npm run check:jsdoc` (JSDoc compliance). Fix all violations.
+- After code changes: `npm test` (vitest). All tests must pass.
 - Never run `npm run build` or `npm run typecheck` unless requested — the lefthook pre-commit
-  runs biome + vitest automatically.
+  runs biome + jsdoc + vitest automatically.
 - If you create or modify a test file, run it and iterate until it passes.
 - For ad-hoc scripts, write them to `/tmp`, run, edit if needed, remove when done. Do not embed
   multi-line scripts in `bash` commands.

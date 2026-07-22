@@ -44,14 +44,6 @@ export interface DriftCheckResult {
 	matchedSignals: string[];
 }
 
-/**
- * Check a block of text for violation signals across all active anchors.
- *
- * @param db - Knapsack database (for reading anchors)
- * @param content - Text to scan (tool output, file content, etc.)
- * @param project - Project scope filter
- * @returns Array of drift detections with matched signals
- */
 /** Words that, when appearing immediately before a signal, indicate the
  * signal is being *negated or excluded* rather than violated. Avoids false
  * positives like "no pgvector" or "pgvector-free" matching a "pgvector" signal. */
@@ -74,6 +66,14 @@ function signalMatches(content: string, signal: string): boolean {
 	}
 }
 
+/**
+ * Check a block of text for violation signals across all active anchors.
+ *
+ * @param db - Knapsack database (for reading anchors)
+ * @param content - Text to scan (tool output, file content, etc.)
+ * @param project - Project scope filter
+ * @returns Array of drift detections with matched signals
+ */
 export function checkDrift(db: KnapsackDB, content: string, project?: string): DriftCheckResult[] {
 	const anchors = getActiveAnchors(db, project);
 	if (anchors.length === 0) return [];

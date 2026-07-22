@@ -10,6 +10,9 @@ import type { CompressionResult } from "../../core/types";
 /**
  * Compress grep output by grouping results by directory.
  * Preserves structure, representative matches, and exact counts.
+ *
+ * @param output - Raw grep command stdout (`file:line:content` lines)
+ * @returns Compression result with grouped directory tree and match counts
  */
 export function compressGrep(output: string): CompressionResult {
 	const lines = output.split("\n").filter(Boolean);
@@ -62,7 +65,6 @@ export function compressGrep(output: string): CompressionResult {
 		.slice(0, maxDirs);
 
 	const parts: string[] = [];
-	let _shownCount = 0;
 
 	for (const [dir, files] of sortedDirs) {
 		const dirTotal = Array.from(files.values()).reduce((s, v) => s + v.length, 0);
@@ -89,8 +91,6 @@ export function compressGrep(output: string): CompressionResult {
 		if (remainingFiles > 0) {
 			parts.push(`  (+${remainingFiles} more files, ${remainingMatches} matches)`);
 		}
-
-		_shownCount += dirTotal;
 	}
 
 	const uniqueFiles = new Set(matches.map((m) => m.file)).size;

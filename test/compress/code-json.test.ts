@@ -121,3 +121,78 @@ describe("compressJson", () => {
 		expect(result.body).toContain("user: object");
 	});
 });
+
+describe("compressJson — recursive shape inference", () => {
+	it("inlines nested object shapes up to MAX_DEPTH", () => {
+		const data = JSON.stringify({
+			user: { name: "Alice", profile: { age: 30, address: { city: "NYC" } } },
+		});
+		const result = compressJson(data);
+		expect(result.body).toContain("user: object{");
+		expect(result.body).toContain("profile:object{");
+		expect(result.body).toContain("name:string");
+	});
+
+	it("reports nested arrays of objects", () => {
+		const data = JSON.stringify({
+			items: [{ id: 1, name: "foo" }],
+		});
+		const result = compressJson(data);
+		expect(result.body).toContain("items: array{");
+		expect(result.body).toContain("id:number");
+		expect(result.body).toContain("name:string");
+	});
+});
+
+describe("compressJson — outlier detection", () => {
+	it("reports stddev and outliers in stats", () => {
+		const items = Array.from({ length: 20 }, (_, i) => ({
+			id: i + 1,
+			value: i < 19 ? i * 10 : 99999,
+		}));
+		const data = JSON.stringify(items);
+		const result = compressJson(data);
+		expect(result.body).toContain("σ=");
+		expect(result.body).toContain("outliers=");
+		expect(result.body).toContain("value:");
+	});
+});
+
+describe("compressJson — cardinality", () => {
+	it("classifies unique keys", () => {
+		const items = Array.from({ length: 10 }, (_, i) => ({
+			id: i + 1,
+			status: i % 2 === 0 ? "active" : "inactive",
+		}));
+		const data = JSON.stringify(items);
+		const result = compressJson(data);
+		expect(result.body).toContain("Cardinality:");
+		expect(result.body).toContain("id: unique");
+		expect(result.body).toContain("status: enum(2)");
+	});
+
+	it("classifies varied cardinality", () => {
+		const items = Array.from({ length: 20 }, (_, i) => ({
+			category: `cat_${i % 8}`,
+		}));
+		const data = JSON.stringify(items);
+		const result = compressJson(data);
+		expect(result.body).toContain("category: 8/20 unique");
+	});
+});
+
+describe("compressJson — mixed-type arrays", () => {
+	it("detects and reports mixed element types", () => {
+		const data = JSON.stringify(["hello", 42, { id: 1 }, true, "world", 99]);
+		const result = compressJson(data);
+		expect(result.body).toContain("mixed(");
+		expect(result.body).toContain("string");
+		expect(result.body).toContain("number");
+	});
+
+	it("reports single-type arrays correctly", () => {
+		const data = JSON.stringify([1, 2, 3, 4, 5]);
+		const result = compressJson(data);
+		expect(result.body).toContain("type: number");
+	});
+});

@@ -1,3 +1,11 @@
+/**
+ * Ambient type declarations for sql.js (WASM SQLite). The official @types
+ * package does not cover the WASM build, so we declare the subset of the
+ * API Knapsack uses: Database.run, exec, export, close.
+ *
+ * @module sql-js-types
+ */
+
 declare module "sql.js" {
 	interface QueryExecResult {
 		columns: string[];

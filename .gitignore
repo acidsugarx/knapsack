@@ -14,3 +14,9 @@ coverage/
 
 # pi-subagent review/run artifacts — not source
 .pi-subagents/
+
+# Local analysis notes — not source
+notes/
+
+# OpenCode state — not source
+.omo/

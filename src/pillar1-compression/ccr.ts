@@ -20,6 +20,7 @@ import { join } from "node:path";
 
 const HASH_PATTERN = /^[a-f0-9]{1,64}$/;
 
+/** Validate that a hash matches the expected hex pattern before using it as a filename. */
 function isValidHash(hash: string): boolean {
 	return HASH_PATTERN.test(hash);
 }

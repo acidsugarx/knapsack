@@ -1,6 +1,6 @@
 {
 	"name": "knapsack-pi",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"description": "Token reduction & persistent memory for Pi coding agent — compress tool outputs, save decisions across sessions, survive compaction, backed by Obsidian",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -27,11 +27,12 @@
 		"dev": "pi --approve",
 		"check": "biome check .",
 		"fix": "biome check --write .",
+		"check:jsdoc": "node scripts/check-jsdoc.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit",
 		"prepare": "lefthook install || true",
-		"prepublishOnly": "npm run check && npm run test"
+		"prepublishOnly": "npm run check && npm run check:jsdoc && npm run test"
 	},
 	"keywords": [
 		"pi",

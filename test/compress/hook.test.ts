@@ -7,6 +7,7 @@ import type { KnapsackDB } from "../../src/core/database.js";
 import type { KnapsackStore } from "../../src/core/types.js";
 import { createDefaultRegistry } from "../../src/pillar1-compression/default-registry.js";
 import { compressionHook } from "../../src/pillar1-compression/hook.js";
+import { outputCache } from "../../src/pillar1-compression/output-cache.js";
 
 /**
  * Regression test: compressionHook must return `{ content: [...] }` with two
@@ -50,6 +51,7 @@ describe("compressionHook contract", () => {
 
 	beforeEach(() => {
 		tmpHome = mkdtempSync(join(tmpdir(), "knapsack-test-"));
+		outputCache.clear();
 	});
 
 	afterEach(() => {
@@ -103,5 +105,33 @@ describe("compressionHook contract", () => {
 		);
 
 		expect(result).toBeUndefined();
+	});
+
+	it("caches compressed output — second call with same input hits cache", async () => {
+		// Realistic large find output — above find strategy threshold (500 tokens)
+		const lines: string[] = [];
+		for (let i = 0; i < 400; i++) lines.push(`./src/module_${i}/file.c`);
+		const output = lines.join("\n");
+
+		const event = makeEvent(output);
+		const ctx = {} as never;
+		const db = makeStubDb();
+		const store = makeStubStore(tmpHome);
+		const registry = createDefaultRegistry();
+
+		// First call — cache miss, runs full pipeline
+		const result1 = await compressionHook(event, ctx, db, store, registry);
+		expect(result1).toBeDefined();
+		expect(outputCache.stats().hits).toBe(0);
+		expect(outputCache.stats().misses).toBe(1);
+
+		// Second call — cache hit, skips pipeline
+		const result2 = await compressionHook(event, ctx, db, store, registry);
+		expect(result2).toBeDefined();
+		expect(outputCache.stats().hits).toBe(1);
+		expect(outputCache.stats().misses).toBe(1);
+
+		// Both calls return the same body
+		expect(result2?.content[0].text).toBe(result1?.content[0].text);
 	});
 });

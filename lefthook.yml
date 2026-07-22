@@ -4,6 +4,9 @@ pre-commit:
     biome:
       glob: "*.{ts,js,json,md,yml,yaml}"
       run: npx biome check --no-errors-on-unmatched --files-ignore-unknown=true --staged {staged_files}
+    jsdoc:
+      glob: "*.ts"
+      run: node scripts/check-jsdoc.mjs
     test:
       glob: "*.ts"
       run: npx vitest run --passWithNoTests

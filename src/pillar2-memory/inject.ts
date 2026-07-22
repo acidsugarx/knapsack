@@ -66,6 +66,7 @@ export async function memoryInjectHook(
 	return formatMemoryBlock(relevant);
 }
 
+/** Extract meaningful search terms from a user prompt, filtering stop words and short tokens. */
 function extractSearchTerms(prompt: string): string[] {
 	if (!prompt?.trim()) return [];
 
@@ -77,6 +78,7 @@ function extractSearchTerms(prompt: string): string[] {
 	return [...new Set(words)].slice(0, 5);
 }
 
+/** Format memory entries as an XML-tagged block for system-prompt injection. */
 function formatMemoryBlock(memories: import("../core/types").MemoryEntry[]): string {
 	const emoji: Record<string, string> = {
 		decision: "🔒",

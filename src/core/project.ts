@@ -1,3 +1,9 @@
+/**
+ * Git project root discovery — scopes project-level memory to a repository.
+ *
+ * @module project
+ */
+
 import { execSync } from "node:child_process";
 
 /**

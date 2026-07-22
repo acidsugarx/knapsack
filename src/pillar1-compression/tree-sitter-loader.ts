@@ -35,6 +35,7 @@ const GRAMMAR_PKG: Record<string, { pkg: string; wasm: string }> = {
 
 const require = createRequire(import.meta.url);
 
+/** Initialise web-tree-sitter WASM runtime once; resets on failure so callers can retry. */
 async function ensureInit(): Promise<void> {
 	if (!initPromise) {
 		initPromise = Parser.init().catch(() => {

@@ -4,12 +4,18 @@
  * ## Flow
  *
  * 1. Extract text content from the tool result
- * 2. Check if output exceeds token threshold
- * 3. Dispatch to strategy registry (auto-detect by content → fallback by tool name)
- * 4. Apply compression strategy
- * 5. Cache original in Obsidian vault (CCR)
- * 6. Record compression stats
- * 7. Return modified content: compressed body + retrieval hint
+ * 2. Check output cache (CacheAligner + Live-Zone) — skip pipeline on cache hit
+ * 3. Detect & redact secrets on original content
+ * 4. Protect XML tags via placeholders
+ * 5. Dispatch to strategy registry (auto-detect by content → fallback by tool name)
+ * 6. Apply compression strategy
+ * 7. Re-detect & redact secrets on compressed body
+ * 8. Restore XML tag placeholders
+ * 9. Cache original in CCR (~/.knapsack/cache)
+ * 10. Record compression stats
+ * 11. Check drift against declared anchors
+ * 12. Cache the fully processed output for future hits
+ * 13. Return modified content: compressed body + retrieval hint
  *
  * ## Plugin architecture
  *
@@ -27,10 +33,13 @@
 
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
+import { sha256 } from "../core/hash";
 import { detectSecrets, redactSecrets } from "../core/security";
 import type { KnapsackStore } from "../core/types";
 import { checkDrift } from "../pillar2-memory/drift";
 import { cache } from "./ccr";
+import { redactImages } from "./image";
+import { outputCache } from "./output-cache";
 import type { StrategyRegistry } from "./plugin";
 import { protectTags, restoreTags } from "./tag-protector";
 
@@ -61,14 +70,51 @@ export async function compressionHook(
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
 
+	// ── Output cache (CacheAligner + Live-Zone) ───────────────
+	// If we've already compressed this exact content, skip the entire
+	// pipeline and return the cached body. The footer is rebuilt each
+	// time because drift anchors may have changed since caching.
+	const cacheKey = sha256(contentText);
+	const cached = outputCache.get(cacheKey);
+	if (cached) {
+		const driftDetections = checkDrift(db, contentText, store.projectRoot ?? undefined);
+		const driftHint =
+			driftDetections.length > 0
+				? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
+				: "";
+		const footer = `\n\n📦 ${cached.savingsPercent}% smaller · hash ${cached.originalHash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+
+		// Record stats (idempotent — DB uses INSERT OR IGNORE by original_hash)
+		db.recordCompression({
+			toolName,
+			originalHash: cached.originalHash,
+			originalTokens: cached.originalTokens,
+			compressedTokens: cached.compressedTokens,
+			savingsPercent: cached.savingsPercent,
+			strategy: cached.strategy,
+			obsidianNote: undefined,
+			sessionId: store.sessionId ?? undefined,
+		});
+
+		return {
+			content: [
+				{ type: "text", text: cached.body },
+				{ type: "text", text: footer },
+			],
+		};
+	}
+
 	// Detect secrets on the ORIGINAL content (before tag protection) so a
 	// JWT inside <thinking> or <args> is not hidden from the detector by the
 	// placeholder swap. We re-run detectSecrets on the final body too — but
 	// capturing the original-content findings here means we keep the offsets
 	// the redactor needs to slice accurately.
 	const originalSecrets = detectSecrets(contentText);
-	const contentForPipeline =
+	let contentForPipeline =
 		originalSecrets.length > 0 ? redactSecrets(contentText, originalSecrets) : contentText;
+
+	const { redacted: imageRedacted, count: imageCount } = redactImages(contentForPipeline);
+	if (imageCount > 0) contentForPipeline = imageRedacted;
 
 	// Compress via registry (auto-routing by content, fallback by tool name).
 	// Wrap with tag protection so XML/custom markers the model needs are not
@@ -132,6 +178,18 @@ export async function compressionHook(
 	const footer = `
 
 📦 ${result.savingsPercent}% smaller · hash ${result.hash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+
+	// Cache the fully processed output for future cache hits (CacheAligner +
+	// Live-Zone). Only the body and stats are cached; the footer is rebuilt
+	// each time because drift anchors may change between turns.
+	outputCache.set(cacheKey, {
+		body: result.body,
+		strategy: result.strategy,
+		originalTokens: result.originalTokens,
+		compressedTokens: result.compressedTokens,
+		savingsPercent: result.savingsPercent,
+		originalHash: result.hash,
+	});
 
 	return {
 		content: [

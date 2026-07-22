@@ -55,6 +55,7 @@ interface Protection {
  * Returns true if any tag block was found and replaced.
  *
  * @param text - Source text to scan.
+ * @returns true if at least one protected tag block is present in `text`.
  */
 export function hasProtectedTags(text: string): boolean {
 	for (const name of PROTECTED_TAGS) {
