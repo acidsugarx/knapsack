@@ -105,8 +105,7 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 			});
 
 			if (result) {
-				const body = result.content.find((b) => b.type === "text")?.text;
-				if (body) output.output = body;
+				output.output = result.content.map((b) => b.text).join("");
 			}
 		},
 
