@@ -66,6 +66,7 @@ export default (async (_ctx: unknown) => {
 				text: output.output,
 				toolName: input.tool,
 				path: typeof input.args?.path === "string" ? input.args.path : undefined,
+				command: typeof input.args?.command === "string" ? input.args.command : undefined,
 				db,
 				store,
 				registry,

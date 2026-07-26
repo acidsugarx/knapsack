@@ -27,6 +27,7 @@ import { outputCache } from "../pillar1-compression/output-cache";
 import type { StrategyRegistry } from "../pillar1-compression/plugin";
 import { protectTags, restoreTags } from "../pillar1-compression/tag-protector";
 import { checkDrift } from "../pillar2-memory/drift";
+import { commandTracker } from "./command-tracker";
 import type { KnapsackDB } from "./database";
 import { sha256 } from "./hash";
 import { isReadTool, readTracker } from "./read-tracker";
@@ -42,6 +43,8 @@ export interface CompressParams {
 	toolName: string;
 	/** File path the tool operated on (for language detection), if any */
 	path?: string;
+	/** Shell command that was run (for command delta detection), if any */
+	command?: string;
 	/** Knapsack database handle */
 	db: KnapsackDB;
 	/** Knapsack runtime store */
@@ -77,7 +80,7 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 	const { text: contentText, toolName, path, db, store, registry } = params;
 	if (!contentText) return;
 
-	// ── Re-read delta check ──────────────────────────────────
+	// ── Re-read delta check (safe — replaces only identical/diffed re-reads) ──
 	if (path && isReadTool(toolName)) {
 		const delta = readTracker.check(path, contentText);
 		if (delta.type === "unchanged") {
@@ -85,6 +88,17 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 		}
 		if (delta.type === "changed") {
 			return { content: [{ type: "text", text: `${delta.marker}\n\n${delta.diff}` }] };
+		}
+		// First read: skip compression — the model needs exact file content for edits.
+		// If a file is too large, the model should use grep/find instead of read.
+		return;
+	}
+
+	// ── Command delta check (same bash command, same output → marker) ──
+	if (params.command && toolName.toLowerCase() === "bash") {
+		const delta = commandTracker.check(params.command, contentText);
+		if (delta.type === "identical") {
+			return { content: [{ type: "text", text: delta.marker }] };
 		}
 	}
 
