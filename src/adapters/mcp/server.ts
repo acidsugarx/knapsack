@@ -166,9 +166,9 @@ export function createKnapsackMcpServer(db: KnapsackDB, store: KnapsackStore): M
 			const entry = db.saveMemory({
 				content: params.content,
 				type: params.type,
-				scope: params.scope,
+				scope: params.scope ?? "project",
 				project: store.projectRoot ?? undefined,
-				importance: params.importance,
+				importance: params.importance ?? 0.5,
 				sourceSession: store.sessionId ?? undefined,
 				embedding,
 			});

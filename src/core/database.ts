@@ -395,8 +395,12 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 	function save(): void {
 		if (saveTimer) clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => {
-			const data = db.export();
-			writeFileSync(dbPath, Buffer.from(data));
+			try {
+				const data = db.export();
+				writeFileSync(dbPath, Buffer.from(data));
+			} catch (err) {
+				console.error("Knapsack DB save failed:", err);
+			}
 			saveTimer = null;
 		}, 2000);
 	}
@@ -444,6 +448,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		saveMemory(input) {
 			const now = new Date().toISOString();
 			const ts = Date.now();
+			const importance = Number.isNaN(input.importance) ? 0.5 : (input.importance ?? 0.5);
 
 			// Consolidation: if a very similar entry already exists, merge into it
 			// instead of inserting a duplicate. Keep the longer content (more
@@ -455,7 +460,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 					input.content.length > existing.content.length ? input.content : existing.content;
 				const mergedImportance = Math.min(
 					1,
-					Math.max(existing.importance, input.importance ?? 0.5) + CONSOLIDATION_IMPORTANCE_BOOST,
+					Math.max(existing.importance, importance) + CONSOLIDATION_IMPORTANCE_BOOST,
 				);
 				db.run(
 					"UPDATE memory SET content = ?, importance = ?, updated_at = ?, last_accessed = ?, access_count = access_count + 1 WHERE id = ?",
@@ -498,7 +503,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				input.type,
 				input.scope ?? "project",
 				input.project ?? null,
-				input.importance ?? 0.5,
+				importance,
 				ts,
 				now,
 				now,
@@ -514,7 +519,7 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				type: input.type,
 				scope: input.scope ?? "project",
 				project: input.project ?? null,
-				importance: input.importance ?? 0.5,
+				importance,
 				recency: ts,
 				createdAt: now,
 				updatedAt: now,

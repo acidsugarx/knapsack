@@ -1,40 +1,11 @@
 /**
  * Knapsack OpenCode adapter — plugin for OpenCode's hook system.
  *
- * ## How it works
- *
- * OpenCode plugins are TypeScript modules that export a `Plugin` function
- * returning hooks. This plugin wires:
- *
- * - `tool.execute.after` → knapsack compression pipeline
- * - `experimental.chat.system.transform` → memory injection
- * - `experimental.session.compacting` → compaction hook
- * - `tool` → custom tools (search, save, retrieve, etc.)
- *
- * ## Installation
- *
- * Add to `opencode.json`:
- * ```json
- * {
- *   "plugin": {
- *     "knapsack": "npm:knapsack-pi"
- *   }
- * }
- * ```
- *
- * Or for local development:
- * ```json
- * {
- *   "plugin": {
- *     "knapsack": "./src/adapters/opencode/plugin.ts"
- *   }
- * }
- * ```
- *
  * @module knapsack-opencode-adapter
  */
 
 import { mkdirSync } from "node:fs";
+import { type Plugin, tool } from "@opencode-ai/plugin";
 import { discoverVault, searchVault } from "../../bridge/obsidian";
 import { writeNote } from "../../bridge/obsidian-notes";
 import type { KnapsackDB } from "../../core/database";
@@ -64,11 +35,9 @@ async function ensureInit(sessionID?: string): Promise<void> {
 		if (sessionID) store.sessionId = sessionID;
 		return;
 	}
-
 	const home = process.env.KNAPSACK_HOME ?? `${process.env.HOME ?? "~"}/.knapsack`;
 	const dbPath = `${home}/memory.db`;
 	mkdirSync(home, { recursive: true });
-
 	db = await createDB(dbPath);
 	await initEmbeddings();
 	registry = createDefaultRegistry();
@@ -81,12 +50,11 @@ async function ensureInit(sessionID?: string): Promise<void> {
 }
 
 /**
- * OpenCode plugin entry point — wires knapsack hooks to OpenCode's event system.
- *
- * @param _ctx - OpenCode plugin context (project, client, directory, etc.)
- * @returns Hooks object with tool.execute.after, system.transform, compacting, and custom tools
+ * OpenCode plugin entry point.
+ * @param _ctx - OpenCode plugin context
+ * @returns Hooks object with compression, memory, and custom tools
  */
-export default async function knapsackOpenCodePlugin(_ctx: unknown) {
+export default (async (_ctx: unknown) => {
 	return {
 		"tool.execute.after": async (
 			input: { tool: string; sessionID: string; callID: string; args: Record<string, unknown> },
@@ -94,7 +62,6 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 		) => {
 			await ensureInit(input.sessionID);
 			if (!db || !store || !registry) return;
-
 			const result = await compress({
 				text: output.output,
 				toolName: input.tool,
@@ -103,10 +70,7 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 				store,
 				registry,
 			});
-
-			if (result) {
-				output.output = result.content.map((b) => b.text).join("");
-			}
+			if (result) output.output = result.content.map((b) => b.text).join("");
 		},
 
 		"experimental.chat.system.transform": async (
@@ -115,13 +79,9 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 		) => {
 			await ensureInit(_input.sessionID);
 			if (!db || !store) return;
-
 			output.system.push(knapsackPromptGuidance());
-
 			const memoryBlock = await injectMemory("", db, store);
-			if (memoryBlock) {
-				output.system.push(memoryBlock);
-			}
+			if (memoryBlock) output.system.push(memoryBlock);
 		},
 
 		"experimental.session.compacting": async (
@@ -130,7 +90,6 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 		) => {
 			await ensureInit(input.sessionID);
 			if (!db || !store) return;
-
 			const allTime = db.getAllTimeStats();
 			output.context.push(
 				`Knapsack: ${allTime.compressionCount} compressions, ${allTime.memoryCount} memories, ${allTime.totalSavingsPercent}% tokens saved.`,
@@ -138,23 +97,17 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 		},
 
 		event: async (input: { event: { type: string; properties?: unknown } }) => {
-			if (input.event.type === "session.created") {
-				await ensureInit();
-			}
+			if (input.event.type === "session.created") await ensureInit();
 		},
 
 		tool: {
-			knapsack_search: {
-				description: "Search Knapsack's persistent memory and Obsidian vault",
-				parameters: {
-					type: "object",
-					properties: {
-						query: { type: "string", description: "What to search for" },
-						limit: { type: "number", description: "Max results (default: 10)" },
-					},
-					required: ["query"],
+			knapsack_search: tool({
+				description: "Search Knapsack's persistent memory and Obsidian vault by keywords",
+				args: {
+					query: tool.schema.string().describe("What to search for"),
+					limit: tool.schema.number().optional().describe("Max results (default: 10)"),
 				},
-				async execute(args: { query: string; limit?: number }) {
+				async execute(args) {
 					await ensureInit();
 					if (!db || !store) return "Knapsack not initialized.";
 					const candidates = db.searchMemory(
@@ -176,24 +129,32 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 						lines.push("", "Obsidian vault:", ...vaultResults.slice(0, 5));
 					return `Found ${ranked.length} memories + ${vaultResults.length} vault notes:\n\n${lines.join("\n")}`;
 				},
-			},
+			}),
 
-			knapsack_save: {
+			knapsack_save: tool({
 				description: "Save a fact, decision, gotcha, or preference to persistent memory",
-				parameters: {
-					type: "object",
-					properties: {
-						content: { type: "string", description: "What to remember" },
-						type: {
-							type: "string",
-							description:
-								"decision, fact, gotcha, convention, preference, command, constraint, hypothesis",
-						},
-						importance: { type: "number", description: "0.0-1.0 (default: 0.5)" },
-					},
-					required: ["content", "type"],
+				args: {
+					content: tool.schema.string().describe("What to remember"),
+					type: tool.schema
+						.enum([
+							"decision",
+							"fact",
+							"gotcha",
+							"convention",
+							"preference",
+							"command",
+							"constraint",
+							"hypothesis",
+						])
+						.describe("Memory type"),
+					importance: tool.schema
+						.number()
+						.min(0)
+						.max(1)
+						.optional()
+						.describe("0.0-1.0 (default: 0.5)"),
 				},
-				async execute(args: { content: string; type: string; importance?: number }) {
+				async execute(args) {
 					await ensureInit();
 					if (!db || !store) return "Knapsack not initialized.";
 					const entry = db.saveMemory({
@@ -201,23 +162,19 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 						type: args.type as never,
 						scope: "project",
 						project: store.projectRoot ?? undefined,
-						importance: args.importance ?? 0.5,
+						importance: Number(args.importance) || 0.5,
 						sourceSession: store.sessionId ?? undefined,
 					});
 					return `✅ Saved: [${entry.type}] ${entry.content}\nid: ${entry.id}`;
 				},
-			},
+			}),
 
-			knapsack_retrieve: {
+			knapsack_retrieve: tool({
 				description: "Retrieve the full original of a compressed tool output by hash",
-				parameters: {
-					type: "object",
-					properties: {
-						hash: { type: "string", description: "Content hash from compression footer" },
-					},
-					required: ["hash"],
+				args: {
+					hash: tool.schema.string().describe("Content hash from compression footer"),
 				},
-				async execute(args: { hash: string }) {
+				async execute(args) {
 					await ensureInit();
 					if (!store) return "Knapsack not initialized.";
 					const original = retrieve(
@@ -227,11 +184,11 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 					);
 					return original ?? `No cached original found for hash "${args.hash}".`;
 				},
-			},
+			}),
 
-			knapsack_stats: {
+			knapsack_stats: tool({
 				description: "Show Knapsack compression and memory statistics",
-				parameters: { type: "object", properties: {} },
+				args: {},
 				async execute() {
 					await ensureInit();
 					if (!db || !store) return "Knapsack not initialized.";
@@ -247,44 +204,37 @@ export default async function knapsackOpenCodePlugin(_ctx: unknown) {
 						.filter(Boolean)
 						.join("\n");
 				},
-			},
+			}),
 
-			knapsack_drift: {
+			knapsack_drift: tool({
 				description: "Check for decision drift against declared anchors",
-				parameters: {
-					type: "object",
-					properties: {
-						content: {
-							type: "string",
-							description: "Text to scan (optional — omit to list anchors)",
-						},
-					},
+				args: {
+					content: tool.schema
+						.string()
+						.optional()
+						.describe("Text to scan (optional — omit to list anchors)"),
 				},
-				async execute(args: { content?: string }) {
+				async execute(args) {
 					await ensureInit();
 					if (!db || !store) return "Knapsack not initialized.";
 					const detections = checkDrift(db, args.content ?? "", store.projectRoot ?? undefined);
 					return formatDriftReport(detections);
 				},
-			},
+			}),
 
-			knapsack_note: {
+			knapsack_note: tool({
 				description: "Write or append to an Obsidian note",
-				parameters: {
-					type: "object",
-					properties: {
-						title: { type: "string", description: "Note title" },
-						content: { type: "string", description: "Markdown content" },
-					},
-					required: ["title", "content"],
+				args: {
+					title: tool.schema.string().describe("Note title"),
+					content: tool.schema.string().describe("Markdown content"),
 				},
-				async execute(args: { title: string; content: string }) {
+				async execute(args) {
 					await ensureInit();
 					if (!store?.vaultPath) return "No Obsidian vault found.";
 					const notePath = writeNote(store.vaultPath, args.title, args.content);
 					return notePath ? `✅ [[${notePath.replace(".md", "")}]]` : "Failed to write note.";
 				},
-			},
+			}),
 		},
 	};
-}
+}) as Plugin;
