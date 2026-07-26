@@ -14,7 +14,13 @@ import { createDefaultRegistry } from "../src/pillar1-compression/default-regist
 import { outputCache } from "../src/pillar1-compression/output-cache";
 
 const tmpHome = mkdtempSync(join(tmpdir(), "knapsack-core-test-"));
-const db = { recordCompression: () => {}, searchMemory: () => [] } as never;
+const meta = new Map<string, string>();
+const db = {
+	recordCompression: () => {},
+	searchMemory: () => [],
+	getMeta: (key: string) => meta.get(key),
+	setMeta: (key: string, value: string) => meta.set(key, value),
+} as never;
 const store = {
 	dbPath: `${tmpHome}/memory.db`,
 	vaultPath: null,

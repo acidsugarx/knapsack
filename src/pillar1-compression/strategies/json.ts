@@ -266,13 +266,7 @@ export function compressJson(text: string): CompressionResult {
 		const elementType = inferArrayType(arr);
 		sections.push(`── ARRAY (${arr.length} items, type: ${elementType}) ──`);
 
-		if (arr.length > 0) {
-			sections.push(`First: ${JSON.stringify(arr[0]).slice(0, 200)}`);
-			if (arr.length > 1) {
-				sections.push(`Last:  ${JSON.stringify(arr[arr.length - 1]).slice(0, 200)}`);
-			}
-		}
-
+		// U-curve: shape at top (high attention), stats middle, samples bottom
 		if (arr.length > 0 && typeof arr[0] === "object" && arr[0] !== null && !Array.isArray(arr[0])) {
 			const shape = inferShapeDeep(arr[0]);
 			if (Object.keys(shape).length > 0) {
@@ -304,6 +298,13 @@ export function compressJson(text: string): CompressionResult {
 						.join("\n");
 					sections.push(`Cardinality:\n${cardStr}`);
 				}
+			}
+		}
+
+		if (arr.length > 0) {
+			sections.push(`First: ${JSON.stringify(arr[0]).slice(0, 200)}`);
+			if (arr.length > 1) {
+				sections.push(`Last:  ${JSON.stringify(arr[arr.length - 1]).slice(0, 200)}`);
 			}
 		}
 

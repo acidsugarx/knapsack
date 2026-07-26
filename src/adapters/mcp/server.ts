@@ -44,6 +44,11 @@ import { z } from "zod";
 import { searchVault } from "../../bridge/obsidian";
 import { writeNote } from "../../bridge/obsidian-notes";
 import type { KnapsackDB } from "../../core/database";
+import {
+	formatRetrievalStats,
+	loadRetrievalStats,
+	recordRetrieval,
+} from "../../core/retrieval-stats";
 import type { KnapsackStore } from "../../core/types";
 import { retrieve } from "../../pillar1-compression/ccr";
 import { outputCache } from "../../pillar1-compression/output-cache";
@@ -188,6 +193,9 @@ export function createKnapsackMcpServer(db: KnapsackDB, store: KnapsackStore): M
 				store.vaultPath,
 				params.hash,
 			);
+			if (original) {
+				recordRetrieval(db, params.hash);
+			}
 			if (!original) {
 				return {
 					content: [{ type: "text", text: `No cached original found for hash "${params.hash}".` }],
@@ -225,6 +233,7 @@ export function createKnapsackMcpServer(db: KnapsackDB, store: KnapsackStore): M
 		async () => {
 			const allTime = db.getAllTimeStats();
 			const cacheStats = outputCache.stats();
+			const retrievalStats = loadRetrievalStats(db);
 			return {
 				content: [
 					{
@@ -236,6 +245,8 @@ export function createKnapsackMcpServer(db: KnapsackDB, store: KnapsackStore): M
 							`Memory entries: ${allTime.memoryCount}`,
 							`Total tokens saved: ${allTime.totalOriginalTokens - allTime.totalCompressedTokens} (${allTime.totalSavingsPercent}%)`,
 							`Output cache: ${cacheStats.hits} hits · ${cacheStats.misses} misses · ${cacheStats.size}/${cacheStats.maxSize}`,
+							"",
+							formatRetrievalStats(retrievalStats),
 							store.vaultPath ? `Vault: ${store.vaultPath}` : "",
 						]
 							.filter(Boolean)

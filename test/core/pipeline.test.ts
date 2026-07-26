@@ -9,9 +9,12 @@ import { createDefaultRegistry } from "../../src/pillar1-compression/default-reg
 import { outputCache } from "../../src/pillar1-compression/output-cache.js";
 
 function makeStubDb(): KnapsackDB {
+	const meta = new Map<string, string>();
 	return {
 		recordCompression: () => {},
 		searchMemory: () => [],
+		getMeta: (key: string) => meta.get(key),
+		setMeta: (key: string, value: string) => meta.set(key, value),
 	} as unknown as KnapsackDB;
 }
 

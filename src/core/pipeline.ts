@@ -29,6 +29,8 @@ import { protectTags, restoreTags } from "../pillar1-compression/tag-protector";
 import { checkDrift } from "../pillar2-memory/drift";
 import type { KnapsackDB } from "./database";
 import { sha256 } from "./hash";
+import { isReadTool, readTracker } from "./read-tracker";
+import { recordCompressionForStats } from "./retrieval-stats";
 import { detectSecrets, redactSecrets } from "./security";
 import type { KnapsackStore } from "./types";
 
@@ -74,6 +76,17 @@ export interface CompressResult {
 export async function compress(params: CompressParams): Promise<CompressResult | undefined> {
 	const { text: contentText, toolName, path, db, store, registry } = params;
 	if (!contentText) return;
+
+	// ── Re-read delta check ──────────────────────────────────
+	if (path && isReadTool(toolName)) {
+		const delta = readTracker.check(path, contentText);
+		if (delta.type === "unchanged") {
+			return { content: [{ type: "text", text: delta.marker }] };
+		}
+		if (delta.type === "changed") {
+			return { content: [{ type: "text", text: `${delta.marker}\n\n${delta.diff}` }] };
+		}
+	}
 
 	// ── Output cache (CacheAligner + Live-Zone) ───────────────
 	const cacheKey = sha256(contentText);
@@ -152,6 +165,8 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 		obsidianNote: ccrHash ?? undefined,
 		sessionId: store.sessionId ?? undefined,
 	});
+
+	recordCompressionForStats(db, result.strategy);
 
 	const driftDetections = checkDrift(db, contentText, store.projectRoot ?? undefined);
 	const driftHint =

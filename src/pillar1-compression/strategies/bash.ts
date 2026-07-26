@@ -201,17 +201,9 @@ export function compressBash(
 
 	const sections: CompressedSection[] = [];
 
-	// Templates — repetitive log patterns collapsed to one line + count
-	if (templates.length > 0) {
-		const shown = templates.slice(0, 20);
-		const suffix = templates.length > 20 ? `\n(+${templates.length - 20} more template types)` : "";
-		sections.push({
-			title: "TEMPLATES",
-			content: shown.map((t) => `[${t.count}x] ${t.sample}`).join("\n") + suffix,
-		});
-	}
+	// U-curve order: critical (errors/warnings) at top, info (templates/progress) in middle, recent (tail) at bottom
 
-	// Errors — always show, capped
+	// Errors — always show, capped (top — high attention)
 	if (errors.length > 0) {
 		const shown = errors.slice(0, maxErrors);
 		const suffix = errors.length > maxErrors ? `\n(+${errors.length - maxErrors} more errors)` : "";
@@ -224,7 +216,7 @@ export function compressBash(
 		});
 	}
 
-	// Warnings — grouped
+	// Warnings — grouped (top — high attention)
 	if (warnings.length > 0) {
 		const deduped = deduplicateLines(warnings);
 		const shown = deduped.slice(0, maxWarnings);
@@ -238,7 +230,17 @@ export function compressBash(
 		});
 	}
 
-	// Progress summary
+	// Templates — repetitive log patterns collapsed to one line + count (middle — low attention)
+	if (templates.length > 0) {
+		const shown = templates.slice(0, 20);
+		const suffix = templates.length > 20 ? `\n(+${templates.length - 20} more template types)` : "";
+		sections.push({
+			title: "TEMPLATES",
+			content: shown.map((t) => `[${t.count}x] ${t.sample}`).join("\n") + suffix,
+		});
+	}
+
+	// Progress summary (middle — low attention)
 	const progressSummary = summarizeProgress(infos);
 	if (progressSummary) {
 		sections.push({
@@ -247,7 +249,7 @@ export function compressBash(
 		});
 	}
 
-	// Tail — last N non-empty lines
+	// Tail — last N non-empty lines (bottom — high attention)
 	const tail = others.filter((l) => l.trim()).slice(-maxTail);
 	if (tail.length > 0) {
 		sections.push({

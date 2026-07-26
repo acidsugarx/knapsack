@@ -9,6 +9,7 @@
 
 import { STOP_WORDS, scoreAndRank } from "../pillar2-memory/scoring";
 import type { KnapsackDB } from "./database";
+import { decayDetector } from "./decay-detector";
 import type { KnapsackStore, MemoryEntry } from "./types";
 
 const MAX_INJECTED_MEMORIES = 5;
@@ -62,7 +63,25 @@ export async function injectMemory(
 	const relevant = ranked.map((r) => r.entry);
 	if (relevant.length === 0) return;
 
-	return formatMemoryBlock(relevant);
+	decayDetector.advanceTurn();
+	for (const m of relevant) {
+		decayDetector.recordInjection(m.id);
+	}
+
+	const allHighImportance = db
+		.getAllMemories(store.projectRoot ?? undefined)
+		.filter((m) => m.importance >= 0.7);
+	const decayed = decayDetector.getDecayedMemories(allHighImportance);
+	for (const m of decayed) {
+		decayDetector.recordInjection(m.id);
+	}
+	const refreshBlock = decayDetector.formatRefreshBlock(decayed);
+
+	const memoryBlock = formatMemoryBlock(relevant);
+	if (refreshBlock) {
+		return `${memoryBlock}\n\n${refreshBlock}`;
+	}
+	return memoryBlock;
 }
 
 /**
