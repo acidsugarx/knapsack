@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Database } from "sql.js";
 import initSqlJs from "sql.js";
+import { appendLedgerEntry } from "../pillar2-memory/ledger";
 import { sha256 } from "./hash";
 import type { CompressionEntry, MemoryEntry, MemoryScopeValue, MemoryTypeValue } from "./types";
 
@@ -540,6 +541,12 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				input.sourceSession ?? null,
 				input.embedding ?? null,
 			]);
+			appendLedgerEntry(dbPath, {
+				memoryId: id,
+				action: "create",
+				actor: input.sourceSession ?? "system",
+				newState: { content: input.content, type: input.type, importance },
+			});
 			save();
 
 			return {
@@ -752,6 +759,12 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 					ts,
 				],
 			);
+			appendLedgerEntry(dbPath, {
+				memoryId: id,
+				action: "buffer_insert",
+				actor: input.sourceSession ?? "system",
+				newState: { content: input.content, type: input.type },
+			});
 			save();
 		},
 
