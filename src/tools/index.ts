@@ -286,8 +286,9 @@ export function registerTools(
 				// Embeddings not available — skip
 			}
 
+			const prefix = `${store.projectRoot ?? "global"}: ${params.type}: ${new Date().toISOString().slice(0, 16)}: `;
 			const entry = db.saveMemory({
-				content: params.content,
+				content: prefix + params.content,
 				type: params.type as
 					| "decision"
 					| "fact"

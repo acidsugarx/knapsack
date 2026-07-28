@@ -55,8 +55,9 @@ export async function observeHook(
 			const toolName = result.toolName ?? "unknown";
 			const errorMsg = extractErrorMessage(result);
 			if (errorMsg) {
+				const prefix = `${store.projectRoot ?? "global"}: gotcha: ${new Date().toISOString().slice(0, 16)}: `;
 				observations.push({
-					content: `${toolName} failed: ${normaliseErrorMessage(errorMsg).slice(0, 200)}`,
+					content: `${prefix}${toolName} failed: ${normaliseErrorMessage(errorMsg).slice(0, 200)}`,
 					type: "gotcha",
 				});
 			}

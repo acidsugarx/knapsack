@@ -1,17 +1,22 @@
 /**
- * Hybrid memory search — BM25 + optional embeddings fusion.
+ * Hybrid memory search — BM25 + optional embeddings fusion via Reciprocal Rank
+ * Fusion (RRF), with MMR diversity, Ebbinghaus decay, and type-field boosting.
  *
- * ## Scoring
+ * ## Scoring (research-backed, see DESIGN-memory-v2.md)
  *
- * When embeddings are available (@xenova/transformers installed):
- *   score = 0.35×BM25 + 0.35×cosine_sim + 0.2×importance + 0.1×recency
+ * 1. BM25 and embedding similarities are computed per-entry.
+ * 2. Entries are ranked separately by BM25 and embedding to produce two
+ *    rank lists; RRF (k=60) fuses them into a single score.
+ *    RRF = 1/(60 + bm25Rank) + 1/(60 + embedRank).
+ * 3. A small tiebreaker term (importance + Ebbinghaus recency + frecency)
+ *    is added to prevent ties among identical-score entries.
+ * 4. Type-field boost (constraint ×1.5, decision ×1.3) multiplies the
+ *    BM25 contribution before ranking, so typed entries rank higher for
+ *    the same content.
+ * 5. When injecting (limit ≤ 15), MMR λ=0.7 diversity rerank selects
+ *    the final set from the top-N candidates.
  *
- * When embeddings unavailable (graceful degradation):
- *   score = 0.5×BM25_saturation + 0.3×importance + 0.2×recency
- *
- * The embedding weight gives semantic matches ("deployment strategy"
- * finds "CI/CD pipeline") while BM25 keeps exact keyword matches
- * ("sessionId" finds entries with "sessionId", not "session").
+ * When embeddings are absent: BM25-only ranking, no RRF fusion.
  *
  * @module search-scoring
  */
@@ -103,7 +108,14 @@ export interface ScoredMemory {
 }
 
 /**
- * Score and rank memories by hybrid BM25 + embedding relevance.
+ * Score and rank memories by hybrid BM25 + embedding relevance via RRF.
+ *
+ * When embeddings are available, produces two independent rank lists (BM25
+ * and cosine similarity), fuses them with Reciprocal Rank Fusion (k=60),
+ * and optionally applies MMR diversity rerank for small injection limits.
+ *
+ * When embeddings are absent, ranks by BM25 alone with a small
+ * importance + Ebbinghaus + frecency tiebreaker.
  *
  * @param query - User's search query
  * @param entries - Candidate memory entries to score
@@ -125,15 +137,14 @@ export async function scoreAndRank(
 			entry: e,
 			relevance: 0,
 			importance: e.importance,
-			recency: e.recency,
-			score:
-				0.4 * e.importance +
-				0.6 * Math.max(0.1, 1 - (Date.now() - e.recency) / (30 * 24 * 60 * 60 * 1000)),
+			recency: ebbinghaus(e),
+			score: 0.4 * e.importance + 0.6 * ebbinghaus(e),
 		}));
 		scored.sort((a, b) => b.score - a.score);
 		return scored.slice(0, limit);
 	}
 
+	const now = Date.now();
 	const idf = computeIDF(queryTerms, allEntries);
 
 	// Generate query embedding if available
@@ -142,8 +153,17 @@ export async function scoreAndRank(
 		queryEmbedding = await embed(query);
 	}
 
-	const scored = entries.map((entry) => {
-		// ── BM25 relevance ──
+	// Detect uppercase signal for smart-case boost (fff-style)
+	const hasUpper = /[A-Z]/.test(query);
+	let upperTokens: string[] = [];
+	if (hasUpper) {
+		upperTokens = query
+			.split(/[\s,.;:!?()[\]{}"'`@#$%^&*+=<>|\\/~-]+/)
+			.filter((t) => /[A-Z]/.test(t));
+	}
+
+	// ── Per-entry raw scores ──
+	const raw = entries.map((entry) => {
 		const contentTerms = tokenize(entry.content);
 		let bm25Relevance = 0;
 		for (const term of queryTerms) {
@@ -155,67 +175,90 @@ export async function scoreAndRank(
 		}
 		const bm25Score = bm25Relevance > 0 ? bm25Relevance / (bm25Relevance + 1.5) : 0;
 
-		// ── Smart-case boost ──
-		// fff-style: when the query carries an uppercase signal, treat the
-		// exact-case match as more meaningful than the case-folded one.
-		// Tokenisation lowercases everything, so we re-check the raw query
-		// tokens against the entry's verbatim content (preserves case).
-		const hasUpper = /[A-Z]/.test(query);
 		let smartCaseBoost = 1;
 		if (hasUpper && bm25Score > 0) {
-			const upperTokens = query
-				.split(/[\s,.;:!?()[\]{}"'`@#$%^&*+=<>|\\/~-]+/)
-				.filter((t) => /[A-Z]/.test(t));
 			if (upperTokens.some((t) => entry.content.includes(t))) smartCaseBoost = 1.15;
 		}
 
-		// ── Embedding cosine similarity ──
+		const typeBoost = entry.type === "constraint" ? 1.5 : entry.type === "decision" ? 1.3 : 1.0;
+
 		let embeddingScore = 0;
 		if (queryEmbedding && entry.embedding) {
-			const entryVec = deserializeEmbedding(entry.embedding);
-			if (entryVec) {
-				embeddingScore = Math.max(0, cosineSimilarity(queryEmbedding, entryVec));
-			}
-		}
-
-		// ── Recency + Frecency ──
-		// fff-inspired: combine pure recency (time decay) with a log-scaled
-		// access-count term so frequently-reused memories rank above peers that
-		// just happen to be young. Both stay in [0, 1] and blend into the
-		// composite score as separate weights.
-		const ageMs = Date.now() - entry.recency;
-		const recency = Math.max(0.1, 1.0 - ageMs / (30 * 24 * 60 * 60 * 1000));
-		const frecency = Math.min(1, Math.log2(1 + entry.accessCount) / 5);
-
-		// ── Composite score ──
-		let score: number;
-		if (queryEmbedding) {
-			// Hybrid: BM25 + embeddings + frecency
-			score =
-				0.3 * bm25Score * smartCaseBoost +
-				0.35 * embeddingScore +
-				0.2 * entry.importance +
-				0.1 * recency +
-				0.05 * frecency;
-		} else {
-			// BM25 + frecency
-			score =
-				0.45 * bm25Score * smartCaseBoost +
-				0.3 * entry.importance +
-				0.15 * recency +
-				0.1 * frecency;
+			const vec = deserializeEmbedding(entry.embedding);
+			if (vec) embeddingScore = Math.max(0, cosineSimilarity(queryEmbedding, vec));
 		}
 
 		return {
 			entry,
-			relevance: Math.round(Math.max(bm25Score, embeddingScore) * 100) / 100,
-			importance: entry.importance,
-			recency: Math.round(recency * 100) / 100,
+			bm25: bm25Score * smartCaseBoost * typeBoost,
+			embed: embeddingScore,
+			recency: ebbinghaus(entry),
+			frecency: Math.min(1, Math.log2(1 + entry.accessCount) / 5),
+			caseBoost: smartCaseBoost > 1,
+		};
+	});
+
+	// ── RRF fusion ──
+	const K = 60;
+	// Assign BM25 ranks (ties receive fractional 0.5 penalty)
+	const bm25Sorted = raw.map((r, i) => ({ i, score: r.bm25 })).sort((a, b) => b.score - a.score);
+	const bm25Ranks = new Map<number, number>();
+	for (let rank = 0; rank < bm25Sorted.length; rank++) {
+		const { i, score } = bm25Sorted[rank]!;
+		// Tie handling: check if next has same score
+		const tied = rank + 1 < bm25Sorted.length && bm25Sorted[rank + 1]!.score === score;
+		bm25Ranks.set(i, rank + (tied ? 0.5 : 0));
+	}
+
+	// Assign embedding ranks (same tie handling)
+	const embedRanks = new Map<number, number>();
+	if (queryEmbedding) {
+		const embSorted = raw.map((r, i) => ({ i, score: r.embed })).sort((a, b) => b.score - a.score);
+		for (let rank = 0; rank < embSorted.length; rank++) {
+			const { i, score } = embSorted[rank]!;
+			const tied = rank + 1 < embSorted.length && embSorted[rank + 1]!.score === score;
+			embedRanks.set(i, rank + (tied ? 0.5 : 0));
+		}
+	}
+
+	// Fuse: RRF + tiebreaker + case bonus
+	const scored: ScoredMemory[] = raw.map((r, i) => {
+		const bm25Rank = bm25Ranks.get(i) ?? entries.length;
+		const embedRank = embedRanks.get(i);
+		const caseBonus = r.caseBoost ? 0.005 : 0;
+		let score: number;
+		if (embedRank !== undefined) {
+			score =
+				1 / (K + bm25Rank) +
+				1 / (K + embedRank) +
+				0.02 * r.entry.importance +
+				0.02 * r.recency +
+				0.01 * r.frecency +
+				caseBonus;
+		} else {
+			score =
+				1 / (K + bm25Rank) +
+				0.04 * r.entry.importance +
+				0.03 * r.recency +
+				0.02 * r.frecency +
+				caseBonus;
+		}
+		return {
+			entry: r.entry,
+			relevance: Math.round(Math.max(r.bm25, r.embed) * 100) / 100,
+			importance: r.entry.importance,
+			recency: Math.round(r.recency * 100) / 100,
 			score: Math.round(score * 100) / 100,
 		};
 	});
 
 	scored.sort((a, b) => b.score - a.score);
+
+	// ── MMR diversity rerank (for injection: small limits from larger pools) ──
+	if (limit <= 15 && scored.length > limit) {
+		return mmrSelect(scored, limit, queryEmbedding);
+	}
+
 	return scored.slice(0, limit);
 }
 
@@ -238,7 +281,6 @@ function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, num
 	const N = allEntries.length;
 	if (N === 0) return new Map();
 
-	// Pre-tokenise all entries once
 	const entryTokens = allEntries.map((e) => new Set(tokenize(e.content)));
 
 	const idf = new Map<string, number>();
@@ -253,4 +295,93 @@ function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, num
 	}
 
 	return idf;
+}
+
+/**
+ * Ebbinghaus exponential recency score.
+ *
+ * `R = e^(-t_hours / S)` where `S` is the entry's memory strength
+ * (discrete integer, defaults to 1 — incremented on retrieval hits
+ * once the `strength` column is added to the schema in Phase 2).
+ *
+ * Replaces the previous linear 30-day decay: `max(0.1, 1 - ageMs / 30d)`.
+ * Evidence: MemoryBank (arXiv 2305.10250), DESIGN §1c.
+ */
+function ebbinghaus(entry: MemoryEntry, now = Date.now()): number {
+	const tHours = Math.max(0, (now - entry.recency) / (60 * 60 * 1000));
+	// strength is not yet in the schema — falls back to 1 for all entries
+	const S = Math.max(1, (entry as Record<string, unknown>).strength as number) || 1;
+	return Math.exp(-tHours / S);
+}
+
+/**
+ * Maximal Marginal Relevance diversity rerank.
+ *
+ * Selects `k` diverse items from a scored list via the MMR algorithm
+ * (Carbonell & Goldstein, SIGIR 1998): λ * relevance(candidate) −
+ * (1−λ) * max_{j∈selected} similarity(candidate, j).
+ *
+ * Uses cosine similarity over stored embeddings when available, falling
+ * back to Jaccard token overlap.
+ */
+function mmrSelect(
+	scored: ScoredMemory[],
+	k: number,
+	queryEmbedding: Float32Array | null,
+	lambda = 0.7,
+): ScoredMemory[] {
+	if (scored.length <= k) return scored;
+
+	const selected: ScoredMemory[] = [];
+	const remaining = [...scored];
+
+	// Pick the highest-scoring entry first
+	selected.push(remaining.shift()!);
+
+	while (selected.length < k && remaining.length > 0) {
+		let bestIdx = 0;
+		let bestScore = -Infinity;
+
+		for (let i = 0; i < remaining.length; i++) {
+			const candidate = remaining[i]!;
+
+			// Max similarity to any selected entry
+			let maxSim = 0;
+			if (queryEmbedding && candidate.entry.embedding) {
+				const candVec = deserializeEmbedding(candidate.entry.embedding);
+				if (candVec) {
+					for (const s of selected) {
+						if (s.entry.embedding) {
+							const sVec = deserializeEmbedding(s.entry.embedding);
+							if (sVec) {
+								const sim = Math.max(0, cosineSimilarity(candVec, sVec));
+								if (sim > maxSim) maxSim = sim;
+							}
+						}
+					}
+				}
+			} else {
+				// Fallback: Jaccard token overlap
+				const candTokens = new Set(tokenize(candidate.entry.content));
+				for (const s of selected) {
+					const sTokens = new Set(tokenize(s.entry.content));
+					let intersect = 0;
+					for (const t of candTokens) if (sTokens.has(t)) intersect++;
+					const sim = intersect / (candTokens.size + sTokens.size - intersect || 1);
+					if (sim > maxSim) maxSim = sim;
+				}
+			}
+
+			const mmrScore = lambda * candidate.score - (1 - lambda) * maxSim;
+			if (mmrScore > bestScore) {
+				bestScore = mmrScore;
+				bestIdx = i;
+			}
+		}
+
+		const best = remaining.splice(bestIdx, 1)[0]!;
+		selected.push(best);
+	}
+
+	return selected;
 }

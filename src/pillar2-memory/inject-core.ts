@@ -61,7 +61,34 @@ export async function injectMemoryCore(
 	const relevant = ranked.map((r) => r.entry);
 	if (relevant.length === 0) return;
 
-	return { relevant, formatted: formatMemoryBlock(relevant) };
+	// Reorder: best memory last, adjacent to user prompt.
+	// Lost-in-the-middle mitigation (Liu et al. 2307.03172): LLM attention is
+	// U-shaped — end-position items receive highest recall.
+	// Pattern: 2nd, 4th, 5th, 3rd, 1st (for 5 items).
+	const reordered = reorderBestLast(relevant);
+	return { relevant, formatted: formatMemoryBlock(reordered) };
+}
+
+/**
+ * Reorder memories so the highest-scoring entry appears last (adjacent to
+ * the user prompt), interleaving middle entries to avoid the "lost in the
+ * middle" attention valley (Liu et al. 2023, arXiv 2307.03172).
+ *
+ * For N=5: indices [1, 3, 4, 2, 0] → best at position 4 (last).
+ * For smaller N, the pattern adjusts to keep the best at the end.
+ */
+function reorderBestLast<T>(items: T[]): T[] {
+	if (items.length <= 1) return items;
+	const result: T[] = [];
+	// Interleave middle items: start at index 1, step by 2 to pick odd indices,
+	// then reverse even indices, then place the best (index 0) at the end.
+	for (let i = 1; i < items.length; i += 2) result.push(items[i]!);
+	const even: T[] = [];
+	for (let i = 2; i < items.length; i += 2) even.push(items[i]!);
+	even.reverse();
+	for (const item of even) result.push(item);
+	result.push(items[0]!);
+	return result;
 }
 
 /**
