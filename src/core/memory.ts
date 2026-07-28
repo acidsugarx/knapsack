@@ -5,10 +5,16 @@
  * @module core-memory
  */
 
-import { injectMemoryCore } from "../pillar2-memory/inject-core";
+import {
+	extractSearchTerms,
+	formatMemoryBlock,
+	injectMemoryCore,
+} from "../pillar2-memory/inject-core";
 import type { KnapsackDB } from "./database";
 import { decayDetector } from "./decay-detector";
 import type { KnapsackStore } from "./types";
+
+export { extractSearchTerms, formatMemoryBlock };
 
 /**
  * Search memories relevant to a user prompt and format them as a
