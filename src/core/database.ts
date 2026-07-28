@@ -67,11 +67,8 @@ const SCHEMA = [
 	`CREATE INDEX IF NOT EXISTS idx_memory_project ON memory(project)`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_importance ON memory(importance DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_memory_recency ON memory(recency DESC)`,
-	`CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-    content,
-    content='memory',
-    content_rowid='rowid'
-  )`,
+	/* FTS5 not available in stock sql.js 1.12.0 (verified by execution — no such module).
+	   In-memory BM25 in src/pillar2-memory/scoring.ts is the lexical engine. */
 	`CREATE TABLE IF NOT EXISTS compression (
     id TEXT PRIMARY KEY,
     tool_name TEXT NOT NULL,
@@ -90,19 +87,6 @@ const SCHEMA = [
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   )`,
-];
-
-const FTS_TRIGGERS = [
-	`CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory BEGIN
-    INSERT INTO memory_fts(rowid, content) VALUES (new.rowid, new.content);
-  END`,
-	`CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory BEGIN
-    INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-  END`,
-	`CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memory BEGIN
-    INSERT INTO memory_fts(memory_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-    INSERT INTO memory_fts(rowid, content) VALUES (new.rowid, new.content);
-  END`,
 ];
 
 // ── Row mapping ─────────────────────────────────────────
@@ -357,29 +341,9 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		db = new sql.Database();
 	}
 
-	// Apply schema — FTS5 may not be available in all sql.js builds
-	let hasFts5 = true;
+	// Apply schema
 	for (const stmt of SCHEMA) {
-		try {
-			db.run(stmt);
-		} catch (err) {
-			if (String(err).includes("fts5") || String(err).includes("no such module")) {
-				hasFts5 = false;
-			} else {
-				throw err;
-			}
-		}
-	}
-
-	// FTS triggers — only if FTS5 is available
-	if (hasFts5) {
-		for (const stmt of FTS_TRIGGERS) {
-			try {
-				db.run(stmt);
-			} catch {
-				// Triggers may already exist
-			}
-		}
+		db.run(stmt);
 	}
 
 	// Migrations — add columns to existing tables if missing

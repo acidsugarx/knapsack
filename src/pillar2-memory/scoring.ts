@@ -118,7 +118,21 @@ export async function scoreAndRank(
 	limit = 10,
 ): Promise<ScoredMemory[]> {
 	const queryTerms = tokenize(query);
-	if (queryTerms.length === 0 && !isAvailable()) return [];
+	if (queryTerms.length === 0) {
+		if (!isAvailable()) return [];
+		// Embeddings available — rank by recency + importance; no BM25 signal from empty query.
+		const scored = entries.map((e) => ({
+			entry: e,
+			relevance: 0,
+			importance: e.importance,
+			recency: e.recency,
+			score:
+				0.4 * e.importance +
+				0.6 * Math.max(0.1, 1 - (Date.now() - e.recency) / (30 * 24 * 60 * 60 * 1000)),
+		}));
+		scored.sort((a, b) => b.score - a.score);
+		return scored.slice(0, limit);
+	}
 
 	const idf = computeIDF(queryTerms, allEntries);
 
@@ -213,19 +227,26 @@ function tokenize(text: string): string[] {
 		.filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 }
 
-/** Compute BM25 IDF scores for query terms across all memory entries. */
+/**
+ * Compute BM25 IDF scores for query terms across all memory entries.
+ *
+ * Tokenises each entry (same {@link tokenize} function used for queries)
+ * so IDF counts exact token matches rather than substring containment.
+ * Fixes the bug where "SQL" would match "sqlite" and inflate df.
+ */
 function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, number> {
 	const N = allEntries.length;
 	if (N === 0) return new Map();
+
+	// Pre-tokenise all entries once
+	const entryTokens = allEntries.map((e) => new Set(tokenize(e.content)));
 
 	const idf = new Map<string, number>();
 
 	for (const term of terms) {
 		let df = 0;
-		for (const entry of allEntries) {
-			if (entry.content.toLowerCase().includes(term)) {
-				df++;
-			}
+		for (const tokens of entryTokens) {
+			if (tokens.has(term)) df++;
 		}
 		const score = Math.log((N - df + 0.5) / (df + 0.5) + 1);
 		idf.set(term, score);

@@ -159,12 +159,6 @@ export const KnapsackForgetParams = Type.Object({
 	id: Type.String({ description: "Memory entry ID to delete" }),
 });
 
-/** Parameters for knapsack_obsidian — search Obsidian vault */
-export const KnapsackGrepParams = Type.Object({
-	query: Type.String({ description: "Search query for Obsidian vault" }),
-	limit: Type.Optional(Type.Number({ default: 10, description: "Max results" })),
-});
-
 // ── Knapsack state ─────────────────────────────────────
 
 /**

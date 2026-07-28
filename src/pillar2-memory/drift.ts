@@ -122,7 +122,11 @@ function getActiveAnchors(db: KnapsackDB, project?: string): DriftAnchor[] {
 /**
  * Parse an anchor from a memory entry.
  *
- * Format: `[anchor] We use FTS5, not pgvector | signals: pgvector, embedding, vector search`
+ * Format: `[anchor] We use FTS5, not pgvector | signals: pgvector, embedding, vector search | status: held`
+ *
+ * The `status` field is optional — omitted or 'aligned' means the anchor is active for drift checking.
+ * 'held' means the user acknowledged drift and parked it for review. 'superseded' means the decision
+ * was intentionally replaced and the anchor should be retired.
  */
 export function parseAnchor(entry: {
 	id: string;
@@ -130,7 +134,9 @@ export function parseAnchor(entry: {
 	createdAt: string;
 	updatedAt: string;
 }): DriftAnchor | null {
-	const match = entry.content.match(/^\[anchor\]\s*(.+?)\s*\|\s*signals:\s*(.+)$/i);
+	const match = entry.content.match(
+		/^\[anchor\]\s*(.+?)\s*\|\s*signals:\s*(.+?)(?:\s*\|\s*status:\s*(.+))?$/i,
+	);
 	if (!match) return null;
 
 	const statement = match[1]!.trim();
@@ -138,12 +144,21 @@ export function parseAnchor(entry: {
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
+	const rawStatus = match[3]?.trim().toLowerCase();
+	const state: DriftAnchor["state"] =
+		rawStatus === "drift"
+			? "drift"
+			: rawStatus === "held"
+				? "held"
+				: rawStatus === "superseded"
+					? "superseded"
+					: "aligned";
 
 	return {
 		id: entry.id,
 		statement,
 		violationSignals: signals,
-		state: "aligned",
+		state,
 		createdAt: entry.createdAt,
 		updatedAt: entry.updatedAt,
 	};
