@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
@@ -23,6 +23,7 @@ import {
 	formatAnalysis,
 	saveAnalysisToMemory,
 } from "../pillar2-memory/session-analysis";
+import { regenerateWiki } from "../pillar2-memory/wiki";
 
 /**
  * Register all Knapsack slash commands with Pi.
@@ -167,11 +168,14 @@ export function registerCommands(
 			}
 			const pending = db.getPendingBuffer(100, store.projectRoot ?? undefined);
 			const all = db.getAllMemories(store.projectRoot ?? undefined);
+			const wikiDir = join(dirname(store.dbPath), "wiki");
+			const wiki = regenerateWiki(db, store, wikiDir);
 			const lines = [
 				"🎒 Dream Consolidation Status",
 				"──────────────────────────────",
 				`Pending buffer entries: ${pending.length}`,
 				`Total live memories:    ${all.length}`,
+				`Wiki:                   ${wiki.indexEntries} entries, ${wiki.pagesGenerated} pages`,
 				"",
 				pending.length > 0
 					? "Use the knapsack_dream tool (phase: orient → gather → prune) to run consolidation."

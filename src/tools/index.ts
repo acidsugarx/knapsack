@@ -614,24 +614,15 @@ export function registerTools(
 		},
 	});
 
-	/**
-	 * Dream consolidation tool — promotes pending buffer entries to live memory.
-	 * Called by the agent during a dream cycle (triggered by gates or /knapsack-dream).
-	 * Phase 'orient' returns pending count + top memories; 'gather' returns buffer
-	 * entries with similar live matches for ADD/UPDATE/SUPERSEDE adjudication;
-	 * 'prune' returns archive candidates. The tool is READ-only — the agent
-	 * performs writes via knapsack_save/knapsack_forget.
-	 */
-	pi.registerTool({
+	const dreamTool = {
 		name: "knapsack_dream",
+		label: "Knapsack Dream",
 		description:
-			"Run a dream consolidation phase — promotes pending buffer entries to live memory. " +
-			"Phase 'orient' shows what's pending. Phase 'gather' returns buffer entries with similar " +
-			"live memories for ADD/UPDATE/SUPERSEDE/NOOP adjudication. Phase 'prune' shows archive candidates.",
+			"Run a dream consolidation phase. Phase 'orient' shows pending buffer. Phase 'gather' returns entries with similar matches. Phase 'prune' shows archive candidates.",
 		parameters: Type.Object({
 			phase: Type.String({ description: "orient, gather, or prune" }),
 		}),
-		handler: async (params: { phase: string }) => {
+		async execute(_toolCallId: string, params: { phase: string }): Promise<any> {
 			const db = getDB();
 			const store = getStore();
 			if (!db || !store) {
@@ -717,5 +708,12 @@ export function registerTools(
 				details: { phase: "prune", count: candidates.length },
 			};
 		},
-	});
+	};
+
+	/**
+	 * Dream consolidation tool — promotes pending buffer entries to live memory.
+	 * Phase 'orient' shows pending count; 'gather' returns entries for adjudication;
+	 * 'prune' shows archive candidates. Read-only — agent performs writes.
+	 */
+	pi.registerTool(dreamTool);
 }
