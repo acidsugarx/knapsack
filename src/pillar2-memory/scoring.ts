@@ -144,7 +144,6 @@ export async function scoreAndRank(
 		return scored.slice(0, limit);
 	}
 
-	const now = Date.now();
 	const idf = computeIDF(queryTerms, allEntries);
 
 	// Generate query embedding if available
@@ -310,7 +309,7 @@ function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, num
 function ebbinghaus(entry: MemoryEntry, now = Date.now()): number {
 	const tHours = Math.max(0, (now - entry.recency) / (60 * 60 * 1000));
 	// strength is not yet in the schema — falls back to 1 for all entries
-	const S = Math.max(1, (entry as Record<string, unknown>).strength as number) || 1;
+	const S = Math.max(1, (entry as unknown as { strength?: number }).strength ?? 1);
 	return Math.exp(-tHours / S);
 }
 
