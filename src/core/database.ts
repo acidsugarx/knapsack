@@ -349,6 +349,10 @@ export interface KnapsackDB {
 		consolidationAttempts: number;
 	}>;
 
+	insertRelation(fromId: string, relation: string, toId: string): void;
+
+	getRelations(memoryId: string): Array<{ fromId: string; relation: string; toId: string }>;
+
 	markBufferStatus(id: string, status: "pending" | "consolidated" | "dropped"): void;
 
 	exportSnapshot(): Uint8Array;
@@ -900,6 +904,27 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		getMeta(key) {
 			const row = execOne(db, "SELECT value FROM meta WHERE key = ?", [key]);
 			return row ? String(row.value ?? "") : undefined;
+		},
+
+		insertRelation(fromId, relation, toId) {
+			db.run(
+				"INSERT OR IGNORE INTO memory_relations (from_id, relation, to_id, created_at) VALUES (?, ?, ?, ?)",
+				[fromId, relation, toId, new Date().toISOString()],
+			);
+			save();
+		},
+
+		getRelations(memoryId) {
+			const rows = execRows(
+				db,
+				"SELECT from_id, relation, to_id FROM memory_relations WHERE from_id = ? OR to_id = ?",
+				[memoryId, memoryId],
+			);
+			return rows.map((r) => ({
+				fromId: String(r.from_id ?? ""),
+				relation: String(r.relation ?? ""),
+				toId: String(r.to_id ?? ""),
+			}));
 		},
 
 		markBufferStatus(id, status) {
