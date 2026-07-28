@@ -16,6 +16,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { formatVaultHits, searchVault, searchVaultWithFrontmatter } from "../bridge/obsidian";
@@ -27,6 +28,8 @@ import { outputCache } from "../pillar1-compression/output-cache";
 import { dreamGather, dreamOrient, dreamPrune } from "../pillar2-memory/dream";
 import { checkDrift, formatDriftReport } from "../pillar2-memory/drift";
 import { embed, isAvailable, serializeEmbedding } from "../pillar2-memory/embeddings";
+import { ingestSource } from "../pillar2-memory/ingest";
+import { deterministicLint } from "../pillar2-memory/lint";
 import { scoreAndRank } from "../pillar2-memory/scoring";
 
 /**
@@ -716,4 +719,81 @@ export function registerTools(
 	 * 'prune' shows archive candidates. Read-only — agent performs writes.
 	 */
 	pi.registerTool(dreamTool);
+
+	const lintTool = {
+		name: "knapsack_lint",
+		label: "Knapsack Lint",
+		description: "Run deterministic memory health check — broken links, orphans, stale entries.",
+		parameters: Type.Object({}),
+		async execute(): Promise<any> {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				return {
+					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
+					details: {},
+				};
+			}
+			const wikiDir = join(dirname(store.dbPath), "wiki");
+			const result = deterministicLint(wikiDir, db, store);
+			const lines = [
+				`## Memory Lint — Health: ${result.healthScore}/100`,
+				`${result.findings.length} findings across ${result.totalPages} pages:`,
+				"",
+				...result.findings.map((f) => `- [${f.severity}] ${f.type}: ${f.file} — ${f.detail}`),
+			];
+			return { content: [{ type: "text" as const, text: lines.join("\n") }], details: result };
+		},
+	};
+
+	const ingestTool = {
+		name: "knapsack_ingest",
+		label: "Knapsack Ingest",
+		description: "Ingest an external file into raw store + buffer for dream consolidation.",
+		parameters: Type.Object({
+			source: Type.String({ description: "File path to ingest" }),
+		}),
+		async execute(_id: string, params: { source: string }): Promise<any> {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				return {
+					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
+					details: {},
+				};
+			}
+			try {
+				const result = ingestSource(db, store, params.source);
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Ingested ${params.source} (${result.bytesRead} bytes, hash: ${result.rawHash}). Added to buffer for consolidation.`,
+						},
+					],
+					details: result,
+				};
+			} catch (err) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Ingest failed: ${err instanceof Error ? err.message : String(err)}`,
+						},
+					],
+					details: { error: true },
+				};
+			}
+		},
+	};
+
+	/**
+	 * Lint tool — deterministic structural health check for the wiki projection.
+	 */
+	pi.registerTool(lintTool);
+
+	/**
+	 * Ingest tool — reads external files into raw store + buffer for consolidation.
+	 */
+	pi.registerTool(ingestTool);
 }

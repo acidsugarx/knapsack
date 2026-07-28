@@ -74,7 +74,7 @@ describe("knapsack extension load", () => {
 		expect(pi.hooks.has("session_shutdown")).toBe(true);
 	});
 
-	it("registers all ten tools", async () => {
+	it("registers all twelve tools", async () => {
 		const pi = makeMockPi();
 		await knapsackEntry(pi);
 		const names = pi.tools.map((t) => t.name).sort();
@@ -84,6 +84,8 @@ describe("knapsack extension load", () => {
 				"knapsack_dream",
 				"knapsack_drift",
 				"knapsack_forget",
+				"knapsack_ingest",
+				"knapsack_lint",
 				"knapsack_note",
 				"knapsack_obsidian",
 				"knapsack_retrieve",
