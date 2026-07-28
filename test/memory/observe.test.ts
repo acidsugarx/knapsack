@@ -69,11 +69,11 @@ describe("observeHook", () => {
 
 		await observeHook(event, db, makeStore());
 
-		const memories = db.getAllMemories();
-		expect(memories.length).toBe(1);
-		expect(memories[0]?.type).toBe("gotcha");
-		expect(memories[0]?.content).toContain("bash failed");
-		expect(memories[0]?.content).toContain("command not found");
+		const buffer = db.getPendingBuffer();
+		expect(buffer.length).toBe(1);
+		expect(buffer[0]?.type).toBe("gotcha");
+		expect(buffer[0]?.content).toContain("bash failed");
+		expect(buffer[0]?.content).toContain("command not found");
 		db.close();
 	});
 
@@ -85,10 +85,10 @@ describe("observeHook", () => {
 
 		await observeHook(event, db, makeStore());
 
-		const memories = db.getAllMemories();
-		expect(memories.length).toBe(1);
-		expect(memories[0]?.content).toContain("read failed");
-		expect(memories[0]?.content).toContain("ENOENT");
+		const buffer = db.getPendingBuffer();
+		expect(buffer.length).toBe(1);
+		expect(buffer[0]?.content).toContain("read failed");
+		expect(buffer[0]?.content).toContain("ENOENT");
 		db.close();
 	});
 
@@ -101,20 +101,17 @@ describe("observeHook", () => {
 
 		await observeHook(event, db, makeStore());
 
-		expect(db.getAllMemories().length).toBe(0);
+		expect(db.getPendingBuffer().length).toBe(0);
 		db.close();
 	});
 
 	it("skips tool results without an extractable error message", async () => {
 		const db = await createDB(join(tmpHome, "mem.db"));
-		// isError=true but no error/content fields — nothing to record. Note:
-		// we strip toolName from the stub too, otherwise extractErrorMessage
-		// picks it up as the first string value and a spurious gotcha is saved.
 		const event = makeEvent([{ isError: true }]) as any;
 
 		await observeHook(event, db, makeStore());
 
-		expect(db.getAllMemories().length).toBe(0);
+		expect(db.getPendingBuffer().length).toBe(0);
 		db.close();
 	});
 });

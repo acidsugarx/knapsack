@@ -24,6 +24,7 @@
 
 import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
+import { sha256 } from "../core/hash";
 import type { KnapsackStore } from "../core/types";
 
 /**
@@ -68,10 +69,10 @@ export async function observeHook(
 
 	// ── Save observations ──────────────────────────────────
 	for (const obs of observations) {
-		db.saveMemory({
+		db.insertBufferEntry({
 			content: obs.content,
 			type: obs.type,
-			scope: "project",
+			contentHash: sha256(obs.content + obs.type),
 			project: store.projectRoot ?? undefined,
 			importance: obs.type === "gotcha" ? 0.7 : 0.5,
 			sourceSession: store.sessionId ?? undefined,

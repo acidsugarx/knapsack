@@ -45,9 +45,9 @@ describe("compactionHook", () => {
 		const db = await createDB(join(tmpHome, "mem.db"));
 		compactionHook(makeEvent({ tokenCount: 12345, messageCount: 7 }), db, makeStore());
 
-		const memories = db.getAllMemories();
-		expect(memories.length).toBe(1);
-		const m = memories[0];
+		const buffer = db.getPendingBuffer();
+		expect(buffer.length).toBe(1);
+		const m = buffer[0];
 		expect(m?.type).toBe("fact");
 		expect(m?.content).toContain("compaction");
 		expect(m?.content).toContain("12345");
@@ -58,17 +58,15 @@ describe("compactionHook", () => {
 	it("records the compaction reason", async () => {
 		const db = await createDB(join(tmpHome, "mem.db"));
 		compactionHook(makeEvent({ reason: "overflow" }), db, makeStore());
-		const m = db.getAllMemories()[0];
+		const m = db.getPendingBuffer()[0];
 		expect(m?.content).toContain("overflow");
 		db.close();
 	});
 
 	it("is a no-op when the event carries no statistics", async () => {
 		const db = await createDB(join(tmpHome, "mem.db"));
-		// No preparation.statistics — hook should still save a memory with the
-		// reason, just without numbers.
 		compactionHook({ reason: "manual", preparation: {} } as any, db, makeStore());
-		expect(db.getAllMemories().length).toBe(1);
+		expect(db.getPendingBuffer().length).toBe(1);
 		db.close();
 	});
 });

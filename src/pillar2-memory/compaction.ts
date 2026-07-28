@@ -28,6 +28,7 @@
 
 import type { SessionBeforeCompactEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
+import { sha256 } from "../core/hash";
 import type { KnapsackStore } from "../core/types";
 
 /**
@@ -65,12 +66,13 @@ export function compactionHook(
 		.filter(Boolean)
 		.join(" · ");
 
-	db.saveMemory({
+	db.insertBufferEntry({
 		content: summary,
 		type: "fact",
-		scope: "session",
+		contentHash: sha256(summary + "fact"),
 		importance: 0.6,
 		sourceSession: store.sessionId ?? undefined,
+		project: store.projectRoot ?? undefined,
 	});
 }
 

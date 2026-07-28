@@ -47,7 +47,10 @@ export async function injectMemoryCore(
 	}
 
 	const recent = db.getRecentMemory(MAX_CANDIDATES, project, store.sessionId ?? undefined);
-	for (const m of recent) candidates.set(m.id, m);
+	for (const m of recent) {
+		if (m.supersededBy) continue;
+		candidates.set(m.id, m);
+	}
 
 	if (candidates.size === 0) return;
 

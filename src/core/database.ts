@@ -108,6 +108,12 @@ function rowToMemory(row: Record<string, unknown>): MemoryEntry {
 		accessCount: Number(row.access_count ?? 0),
 		lastAccessed: row.last_accessed ? String(row.last_accessed) : null,
 		embedding: row.embedding ? String(row.embedding) : null,
+		supersededBy: row.superseded_by ? String(row.superseded_by) : null,
+		validFrom: row.valid_from ? String(row.valid_from) : null,
+		validTo: row.valid_to ? String(row.valid_to) : null,
+		confidence: Number(row.confidence ?? 0.7),
+		strength: Number(row.strength ?? 1),
+		evidence: row.evidence ? String(row.evidence) : null,
 	};
 }
 
@@ -317,6 +323,31 @@ export interface KnapsackDB {
 	 */
 	consolidateMemories(): { scanned: number; merged: number; remaining: number };
 
+	insertBufferEntry(input: {
+		content: string;
+		type: MemoryTypeValue;
+		contentHash: string;
+		sourceSession?: string;
+		project?: string;
+		importance?: number;
+	}): void;
+
+	getPendingBuffer(
+		limit?: number,
+		project?: string,
+	): Array<{
+		id: string;
+		content: string;
+		type: string;
+		contentHash: string;
+		sourceSession: string | null;
+		project: string | null;
+		importance: number;
+		ingestionTs: string;
+		status: string;
+		consolidationAttempts: number;
+	}>;
+
 	close(): void;
 }
 
@@ -350,6 +381,40 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 	try {
 		db.run("ALTER TABLE memory ADD COLUMN embedding TEXT");
 	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN superseded_by TEXT");
+	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN valid_from TEXT");
+	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN valid_to TEXT");
+	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7");
+	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN strength INTEGER NOT NULL DEFAULT 1");
+	} catch {}
+	try {
+		db.run("ALTER TABLE memory ADD COLUMN evidence TEXT");
+	} catch {}
+
+	// TRIAGE buffer table (Miteski §5.2 — dedup against buffer only, never live store)
+	db.run(`CREATE TABLE IF NOT EXISTS memory_buffer (
+		id TEXT PRIMARY KEY,
+		content TEXT NOT NULL,
+		type TEXT NOT NULL,
+		content_hash TEXT NOT NULL,
+		source_session TEXT,
+		project TEXT,
+		importance REAL NOT NULL DEFAULT 0.5,
+		ingestion_ts TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		consolidation_attempts INTEGER NOT NULL DEFAULT 0
+	)`);
+	db.run("CREATE INDEX IF NOT EXISTS idx_buffer_hash ON memory_buffer(content_hash)");
+	db.run("CREATE INDEX IF NOT EXISTS idx_buffer_status ON memory_buffer(status, ingestion_ts)");
 
 	/**
 	 * Save the database to disk — debounced.
@@ -668,6 +733,52 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 				merged,
 				remaining: all.length - toDelete.size,
 			};
+		},
+
+		insertBufferEntry(input) {
+			const id = randomUUID();
+			const ts = new Date().toISOString();
+			db.run(
+				`INSERT OR IGNORE INTO memory_buffer (id, content, type, content_hash, source_session, project, importance, ingestion_ts, status, consolidation_attempts)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+				[
+					id,
+					input.content,
+					input.type,
+					input.contentHash,
+					input.sourceSession ?? null,
+					input.project ?? null,
+					input.importance ?? 0.5,
+					ts,
+				],
+			);
+			save();
+		},
+
+		getPendingBuffer(limit = 50, project?: string) {
+			const rows = project
+				? execRows(
+						db,
+						`SELECT * FROM memory_buffer WHERE status = 'pending' AND (project IS NULL OR project = ?) ORDER BY ingestion_ts ASC LIMIT ?`,
+						[project, limit],
+					)
+				: execRows(
+						db,
+						`SELECT * FROM memory_buffer WHERE status = 'pending' ORDER BY ingestion_ts ASC LIMIT ?`,
+						[limit],
+					);
+			return rows.map((r) => ({
+				id: String(r.id ?? ""),
+				content: String(r.content ?? ""),
+				type: String(r.type ?? "fact"),
+				contentHash: String(r.content_hash ?? ""),
+				sourceSession: r.source_session ? String(r.source_session) : null,
+				project: r.project ? String(r.project) : null,
+				importance: Number(r.importance ?? 0.5),
+				ingestionTs: String(r.ingestion_ts ?? ""),
+				status: String(r.status ?? "pending"),
+				consolidationAttempts: Number(r.consolidation_attempts ?? 0),
+			}));
 		},
 
 		recordCompression(input) {

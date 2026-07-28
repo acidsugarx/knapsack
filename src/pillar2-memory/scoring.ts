@@ -203,20 +203,18 @@ export async function scoreAndRank(
 	const bm25Sorted = raw.map((r, i) => ({ i, score: r.bm25 })).sort((a, b) => b.score - a.score);
 	const bm25Ranks = new Map<number, number>();
 	for (let rank = 0; rank < bm25Sorted.length; rank++) {
-		const { i, score } = bm25Sorted[rank]!;
-		// Tie handling: check if next has same score
-		const tied = rank + 1 < bm25Sorted.length && bm25Sorted[rank + 1]!.score === score;
-		bm25Ranks.set(i, rank + (tied ? 0.5 : 0));
+		const entry = bm25Sorted[rank]!;
+		const prev = rank > 0 ? bm25Sorted[rank - 1] : null;
+		const effectiveRank = prev && prev.score === entry.score ? bm25Ranks.get(prev.i)! : rank;
+		bm25Ranks.set(entry.i, effectiveRank);
 	}
 
-	// Assign embedding ranks (same tie handling)
+	// Assign embedding ranks
 	const embedRanks = new Map<number, number>();
 	if (queryEmbedding) {
 		const embSorted = raw.map((r, i) => ({ i, score: r.embed })).sort((a, b) => b.score - a.score);
 		for (let rank = 0; rank < embSorted.length; rank++) {
-			const { i, score } = embSorted[rank]!;
-			const tied = rank + 1 < embSorted.length && embSorted[rank + 1]!.score === score;
-			embedRanks.set(i, rank + (tied ? 0.5 : 0));
+			embedRanks.set(embSorted[rank]!.i, rank);
 		}
 	}
 
@@ -225,29 +223,35 @@ export async function scoreAndRank(
 		const bm25Rank = bm25Ranks.get(i) ?? entries.length;
 		const embedRank = embedRanks.get(i);
 		const caseBonus = r.caseBoost ? 0.005 : 0;
+		const confidence = r.entry.confidence ?? 0.7;
+		const supersededPenalty = r.entry.supersededBy ? 0.2 : 0;
 		let score: number;
 		if (embedRank !== undefined) {
 			score =
-				1 / (K + bm25Rank) +
-				1 / (K + embedRank) +
-				0.02 * r.entry.importance +
-				0.02 * r.recency +
-				0.01 * r.frecency +
-				caseBonus;
+				(1 / (K + bm25Rank) +
+					1 / (K + embedRank) +
+					0.02 * r.entry.importance +
+					0.02 * r.recency +
+					0.01 * r.frecency +
+					caseBonus -
+					supersededPenalty) *
+				confidence;
 		} else {
 			score =
-				1 / (K + bm25Rank) +
-				0.04 * r.entry.importance +
-				0.03 * r.recency +
-				0.02 * r.frecency +
-				caseBonus;
+				(1 / (K + bm25Rank) +
+					0.04 * r.entry.importance +
+					0.03 * r.recency +
+					0.02 * r.frecency +
+					caseBonus -
+					supersededPenalty) *
+				confidence;
 		}
 		return {
 			entry: r.entry,
 			relevance: Math.round(Math.max(r.bm25, r.embed) * 100) / 100,
 			importance: r.entry.importance,
 			recency: Math.round(r.recency * 100) / 100,
-			score: Math.round(score * 100) / 100,
+			score: Math.round(score * 10000) / 10000,
 		};
 	});
 
@@ -308,8 +312,7 @@ function computeIDF(terms: string[], allEntries: MemoryEntry[]): Map<string, num
  */
 function ebbinghaus(entry: MemoryEntry, now = Date.now()): number {
 	const tHours = Math.max(0, (now - entry.recency) / (60 * 60 * 1000));
-	// strength is not yet in the schema — falls back to 1 for all entries
-	const S = Math.max(1, (entry as unknown as { strength?: number }).strength ?? 1);
+	const S = Math.max(1, entry.strength ?? 1);
 	return Math.exp(-tHours / S);
 }
 

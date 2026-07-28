@@ -54,8 +54,13 @@ export interface MemoryEntry {
 	sourceSession: string | null;
 	accessCount: number;
 	lastAccessed: string | null;
-	/** Optional embedding vector (JSON string for SQLite storage) */
 	embedding?: string | null;
+	supersededBy?: string | null;
+	validFrom?: string | null;
+	validTo?: string | null;
+	confidence?: number;
+	strength?: number;
+	evidence?: string | null;
 }
 
 /**
