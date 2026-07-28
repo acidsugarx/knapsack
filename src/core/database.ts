@@ -349,6 +349,10 @@ export interface KnapsackDB {
 		consolidationAttempts: number;
 	}>;
 
+	markBufferStatus(id: string, status: "pending" | "consolidated" | "dropped"): void;
+
+	exportSnapshot(): Uint8Array;
+
 	close(): void;
 }
 
@@ -896,6 +900,16 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		getMeta(key) {
 			const row = execOne(db, "SELECT value FROM meta WHERE key = ?", [key]);
 			return row ? String(row.value ?? "") : undefined;
+		},
+
+		markBufferStatus(id, status) {
+			db.run("UPDATE memory_buffer SET status = ? WHERE id = ?", [status, id]);
+			save();
+		},
+
+		exportSnapshot() {
+			saveNow();
+			return db.export();
 		},
 
 		close() {

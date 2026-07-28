@@ -150,6 +150,36 @@ export function registerCommands(
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
+
+	/**
+	 * /knapsack-dream — shows dream consolidation status: pending buffer count,
+	 * total live memories, and instructions for running consolidation via the
+	 * knapsack_dream tool. Does not trigger consolidation itself — read-only.
+	 */
+	pi.registerCommand("knapsack-dream", {
+		description: "Show dream consolidation status — pending buffer, gate state, last run",
+		handler: async (_args, ctx) => {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				ctx.ui.notify("Knapsack is not initialized.", "warning");
+				return;
+			}
+			const pending = db.getPendingBuffer(100, store.projectRoot ?? undefined);
+			const all = db.getAllMemories(store.projectRoot ?? undefined);
+			const lines = [
+				"🎒 Dream Consolidation Status",
+				"──────────────────────────────",
+				`Pending buffer entries: ${pending.length}`,
+				`Total live memories:    ${all.length}`,
+				"",
+				pending.length > 0
+					? "Use the knapsack_dream tool (phase: orient → gather → prune) to run consolidation."
+					: "Buffer is empty — nothing to consolidate.",
+			];
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
 }
 
 /**

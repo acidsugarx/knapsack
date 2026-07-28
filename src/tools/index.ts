@@ -24,6 +24,7 @@ import type { KnapsackDB } from "../core/database";
 import type { KnapsackStore } from "../core/types";
 import { retrieve } from "../pillar1-compression/ccr";
 import { outputCache } from "../pillar1-compression/output-cache";
+import { dreamGather, dreamOrient, dreamPrune } from "../pillar2-memory/dream";
 import { checkDrift, formatDriftReport } from "../pillar2-memory/drift";
 import { embed, isAvailable, serializeEmbedding } from "../pillar2-memory/embeddings";
 import { scoreAndRank } from "../pillar2-memory/scoring";
@@ -609,6 +610,111 @@ export function registerTools(
 			return {
 				content: [{ type: "text" as const, text: report }],
 				details: { driftCount: detections.length },
+			};
+		},
+	});
+
+	/**
+	 * Dream consolidation tool — promotes pending buffer entries to live memory.
+	 * Called by the agent during a dream cycle (triggered by gates or /knapsack-dream).
+	 * Phase 'orient' returns pending count + top memories; 'gather' returns buffer
+	 * entries with similar live matches for ADD/UPDATE/SUPERSEDE adjudication;
+	 * 'prune' returns archive candidates. The tool is READ-only — the agent
+	 * performs writes via knapsack_save/knapsack_forget.
+	 */
+	pi.registerTool({
+		name: "knapsack_dream",
+		description:
+			"Run a dream consolidation phase — promotes pending buffer entries to live memory. " +
+			"Phase 'orient' shows what's pending. Phase 'gather' returns buffer entries with similar " +
+			"live memories for ADD/UPDATE/SUPERSEDE/NOOP adjudication. Phase 'prune' shows archive candidates.",
+		parameters: Type.Object({
+			phase: Type.String({ description: "orient, gather, or prune" }),
+		}),
+		handler: async (params: { phase: string }) => {
+			const db = getDB();
+			const store = getStore();
+			if (!db || !store) {
+				return {
+					content: [{ type: "text" as const, text: "Knapsack is not initialized." }],
+					details: {},
+				};
+			}
+
+			if (params.phase === "orient") {
+				const ctx = dreamOrient(db, store);
+				const lines = [
+					"## Dream — Orient",
+					`- Pending buffer entries: ${ctx.pendingBuffer}`,
+					`- Total live memories: ${ctx.totalMemories}`,
+					"",
+					"### Top memories by importance:",
+					...ctx.topMemories.map((m) => `- [${m.type}] ${m.content} (importance: ${m.importance})`),
+					"",
+					ctx.pendingBuffer > 0
+						? `Call knapsack_dream with phase "gather" to see pending entries for consolidation.`
+						: "Buffer is empty — nothing to consolidate.",
+				];
+				return {
+					content: [{ type: "text" as const, text: lines.join("\n") }],
+					details: { phase: "orient", pendingBuffer: ctx.pendingBuffer },
+				};
+			}
+
+			if (params.phase === "gather") {
+				const entries = dreamGather(db, store, 20);
+				if (entries.length === 0) {
+					return {
+						content: [{ type: "text" as const, text: "No pending buffer entries to consolidate." }],
+						details: { phase: "gather", count: 0 },
+					};
+				}
+				const lines = [
+					"## Dream — Gather Signal",
+					`${entries.length} pending buffer entries. For each, adjudicate: ADD (new), UPDATE (merge), SUPERSEDE (contradicts), NOOP (duplicate).`,
+					"",
+					...entries.flatMap((e, i) => [
+						`### Entry ${i + 1}: [${e.type}] (importance: ${e.importance})`,
+						`Buffer ID: ${e.bufferId}`,
+						`Content: ${e.content}`,
+						e.similar.length > 0
+							? `Similar live memories:\n${e.similar.map((s) => `  - [${s.type}] ${s.content} (id: ${s.id}, importance: ${s.importance})`).join("\n")}`
+							: "No similar live memories found — likely ADD.",
+						"",
+					]),
+					"## Instructions",
+					"For each entry, decide:",
+					"- **ADD**: new knowledge not in live memory → call knapsack_save",
+					"- **UPDATE**: refines existing → call knapsack_save (will UPSERT on content_hash)",
+					"- **SUPERSEDE**: contradicts existing → save new, then mark old superseded",
+					"- **NOOP**: duplicate → skip",
+				];
+				return {
+					content: [{ type: "text" as const, text: lines.join("\n") }],
+					details: { phase: "gather", count: entries.length },
+				};
+			}
+
+			const candidates = dreamPrune(db, store);
+			if (candidates.length === 0) {
+				return {
+					content: [{ type: "text" as const, text: "No entries eligible for archival." }],
+					details: { phase: "prune", count: 0 },
+				};
+			}
+			const lines = [
+				"## Dream — Prune Candidates",
+				`${candidates.length} entries eligible for archival (≥30d, access≤1, importance<0.7).`,
+				"Archive sets valid_to — entries are NOT deleted.",
+				"",
+				...candidates.map(
+					(c) =>
+						`- [${c.type}] ${c.content} (age: ${c.ageDays}d, access: ${c.accessCount}, id: ${c.id})`,
+				),
+			];
+			return {
+				content: [{ type: "text" as const, text: lines.join("\n") }],
+				details: { phase: "prune", count: candidates.length },
 			};
 		},
 	});

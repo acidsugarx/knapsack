@@ -74,13 +74,14 @@ describe("knapsack extension load", () => {
 		expect(pi.hooks.has("session_shutdown")).toBe(true);
 	});
 
-	it("registers all nine tools", async () => {
+	it("registers all ten tools", async () => {
 		const pi = makeMockPi();
 		await knapsackEntry(pi);
 		const names = pi.tools.map((t) => t.name).sort();
 		expect(names).toEqual(
 			[
 				"knapsack_anchor",
+				"knapsack_dream",
 				"knapsack_drift",
 				"knapsack_forget",
 				"knapsack_note",
@@ -93,11 +94,16 @@ describe("knapsack extension load", () => {
 		);
 	});
 
-	it("registers all three slash commands", async () => {
+	it("registers all four slash commands", async () => {
 		const pi = makeMockPi();
 		await knapsackEntry(pi);
 		const names = pi.commands.map((c) => c.name).sort();
-		expect(names).toEqual(["knapsack-consolidate", "knapsack-learn", "knapsack-status"]);
+		expect(names).toEqual([
+			"knapsack-consolidate",
+			"knapsack-dream",
+			"knapsack-learn",
+			"knapsack-status",
+		]);
 	});
 
 	it("loads without throwing even when the home dir does not yet exist", async () => {
