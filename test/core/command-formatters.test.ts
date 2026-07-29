@@ -17,6 +17,7 @@ import {
 	formatCargoTest,
 	matchCargo,
 } from "../../src/core/command-formatters/rust.js";
+import { formatGoTest, matchGoTest } from "../../src/core/command-formatters/test-runners.js";
 
 const REAL_GIT_STATUS = `On branch feat/cross-agent
 Changes to be committed:
@@ -298,5 +299,53 @@ describe("command formatters — registry dispatch", () => {
 	it("returns null for empty command", () => {
 		const result = formatCommandOutput({ output: "hello", command: "" });
 		expect(result).toBeNull();
+	});
+
+	it("formats go test output with failures", () => {
+		const output = [
+			"=== RUN   TestPass",
+			"--- PASS: TestPass (0.00s)",
+			"=== RUN   TestFail",
+			"--- FAIL: TestFail (0.00s)",
+			"    foo_test.go:10: expected 5, got 3",
+			"FAIL",
+			"FAIL\texample.com/pkg\t0.123s",
+		].join("\n");
+		const result = formatGoTest(output);
+		expect(result).not.toBeNull();
+		expect(result!.strategy).toBe("go-test");
+		expect(result!.body).toContain("Failed: 1");
+		expect(result!.body).toContain("expected 5, got 3");
+	});
+
+	it("formats go test output with all passing", () => {
+		const output = [
+			"=== RUN   TestA",
+			"--- PASS: TestA (0.00s)",
+			"=== RUN   TestB",
+			"--- PASS: TestB (0.00s)",
+			"ok  \texample.com/pkg\t0.050s",
+		].join("\n");
+		const result = formatGoTest(output);
+		expect(result).not.toBeNull();
+		expect(result!.body).toContain("Passed: 1");
+	});
+
+	it("go test not recognized for non-test output", () => {
+		expect(formatGoTest("hello world")).toBeNull();
+		expect(matchGoTest("go build")).toBe(false);
+		expect(matchGoTest("go test ./...")).toBe(true);
+	});
+
+	it("dispatches go test via command formatter registry", () => {
+		const output = [
+			"=== RUN   TestX",
+			"--- FAIL: TestX (0.00s)",
+			"    x_test.go:5: expected nil",
+			"FAIL\tpkg\t0.001s",
+		].join("\n");
+		const result = formatCommandOutput({ output, command: "go test ./..." });
+		expect(result).not.toBeNull();
+		expect(result!.strategy).toBe("go-test");
 	});
 });

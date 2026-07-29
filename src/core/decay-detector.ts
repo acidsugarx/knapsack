@@ -122,6 +122,37 @@ export class DecayDetector {
 		this.currentTurn = 0;
 		this.injectedAt.clear();
 	}
+
+	/**
+	 * Serialize decay detector state to a JSON string for persistence.
+	 *
+	 * @returns JSON-serialized state
+	 */
+	serialize(): string {
+		return JSON.stringify({
+			currentTurn: this.currentTurn,
+			injectedAt: Array.from(this.injectedAt.entries()),
+		});
+	}
+
+	/**
+	 * Restore decay detector state from a JSON string.
+	 *
+	 * @param data - Previously serialized state
+	 */
+	deserialize(data: string): void {
+		try {
+			const parsed = JSON.parse(data) as { currentTurn: number; injectedAt: [string, number][] };
+			this.currentTurn = parsed.currentTurn ?? 0;
+			this.injectedAt.clear();
+			for (const [id, turn] of parsed.injectedAt ?? []) {
+				this.injectedAt.set(id, turn);
+			}
+		} catch {
+			// Corrupted data — start fresh
+			this.clear();
+		}
+	}
 }
 
 /** Default singleton detector instance. */

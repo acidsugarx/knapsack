@@ -59,10 +59,12 @@ export function registerTools(
 			"Retrieve the full original of a previously compressed tool output, by its hash. " +
 			"Call ONLY when the compressed output is missing information critical to your next step — " +
 			"for summaries, counts, structure overviews, and listings the compressed output is sufficient. " +
-			"Most tasks do not need this.",
+			"Most tasks do not need this. " +
+			"Optional filters: grep (case-insensitive regex), lines (range 'N-M'), head (first N lines), tail (last N lines).",
 		promptSnippet: "Fetch original of a compressed tool output by hash",
 		promptGuidelines: [
 			"Use knapsack_retrieve only when a compressed tool output is missing a specific detail you need to proceed — not for summaries, counts, or structure overviews.",
+			"Use grep/lines/head/tail options to retrieve only relevant slices instead of the full output.",
 		],
 		parameters: Type.Object({
 			hash: Type.String({
@@ -85,6 +87,12 @@ export function registerTools(
 				store.dbPath.replace("/memory.db", ""),
 				store.vaultPath,
 				params.hash,
+				{
+					grep: params.grep as string | undefined,
+					lines: params.lines as string | undefined,
+					head: params.head as number | undefined,
+					tail: params.tail as number | undefined,
+				},
 			);
 			if (!original) {
 				return {

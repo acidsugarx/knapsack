@@ -97,6 +97,36 @@ describe("DecayDetector", () => {
 		expect(detector.turn).toBe(0);
 		expect(detector.isDecayed("m1")).toBe(true);
 	});
+
+	it("serialize and deserialize preserves state", () => {
+		detector.advanceTurn();
+		detector.advanceTurn();
+		detector.recordInjection("m1");
+		detector.advanceTurn();
+		detector.recordInjection("m2");
+
+		const saved = detector.serialize();
+
+		const restored = new DecayDetector();
+		restored.deserialize(saved);
+
+		expect(restored.turn).toBe(3);
+		expect(restored.isDecayed("m1")).toBe(false);
+		expect(restored.isDecayed("m2")).toBe(false);
+	});
+
+	it("deserialize with empty data starts fresh", () => {
+		const restored = new DecayDetector();
+		restored.deserialize("{}");
+		expect(restored.turn).toBe(0);
+	});
+
+	it("deserialize with invalid data falls back to empty state", () => {
+		const restored = new DecayDetector();
+		restored.advanceTurn();
+		restored.deserialize("not-json");
+		expect(restored.turn).toBe(0);
+	});
 });
 
 describe("decayDetector singleton", () => {

@@ -27,11 +27,14 @@ import { outputCache } from "../pillar1-compression/output-cache";
 import type { StrategyRegistry } from "../pillar1-compression/plugin";
 import { protectTags, restoreTags } from "../pillar1-compression/tag-protector";
 import { checkDrift } from "../pillar2-memory/drift";
+import { formatCommandOutput } from "./command-formatters";
 import { commandTracker } from "./command-tracker";
 import type { KnapsackDB } from "./database";
+import { extractErrors, formatErrorBlock } from "./error-extractor";
 import { sha256 } from "./hash";
 import { isReadTool, readTracker } from "./read-tracker";
 import { recordCompressionForStats } from "./retrieval-stats";
+import { checkSafety } from "./safety-router";
 import { detectSecrets, redactSecrets } from "./security";
 import type { KnapsackStore } from "./types";
 
@@ -45,6 +48,8 @@ export interface CompressParams {
 	path?: string;
 	/** Shell command that was run (for command delta detection), if any */
 	command?: string;
+	/** Exit code of the command (0 = success, non-zero = failure) */
+	exitCode?: number;
 	/** Knapsack database handle */
 	db: KnapsackDB;
 	/** Knapsack runtime store */
@@ -80,6 +85,16 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 	const { text: contentText, toolName, path, db, store, registry } = params;
 	if (!contentText) return;
 
+	// ── knapsack_retrieve bypass (centralized — applies to all adapters) ──
+	// knapsack_retrieve exists solely to return uncompressed originals.
+	// Re-compressing its output defeats its purpose — the caller would see
+	// the same compressed summary it was trying to escape from.
+	if (toolName === "knapsack_retrieve") return;
+
+	// ── Safety routing (stack traces, keys, SQL, binary → passthrough) ──
+	const safety = checkSafety(contentText, toolName);
+	if (safety.shouldPassthrough) return;
+
 	// ── Re-read delta check (safe — replaces only identical/diffed re-reads) ──
 	if (path && isReadTool(toolName)) {
 		const delta = readTracker.check(path, contentText);
@@ -100,6 +115,81 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 		if (delta.type === "identical") {
 			return { content: [{ type: "text", text: delta.marker }] };
 		}
+	}
+
+	// ── Per-command formatters (git/npm/pytest/cargo → semantic summary) ──
+	if (params.command) {
+		const formatted = formatCommandOutput({
+			output: contentText,
+			command: params.command,
+			exitCode: params.exitCode,
+		});
+		if (formatted) {
+			const cacheKey2 = sha256(contentText);
+			const driftDetections2 = checkDrift(db, contentText, store.projectRoot ?? undefined);
+			const driftHint2 =
+				driftDetections2.length > 0
+					? ` · ⚠️ DRIFT: ${driftDetections2.map((d) => d.anchor.statement).join("; ")}`
+					: "";
+			const footer2 = `\n\n📦 ${formatted.savingsPercent}% smaller · hash ${formatted.hash} · ${formatted.strategy}${driftHint2}`;
+
+			db.recordCompression({
+				toolName,
+				originalHash: formatted.hash,
+				originalTokens: formatted.originalTokens,
+				compressedTokens: formatted.compressedTokens,
+				savingsPercent: formatted.savingsPercent,
+				strategy: formatted.strategy,
+				obsidianNote: undefined,
+				sessionId: store.sessionId ?? undefined,
+			});
+			recordCompressionForStats(db, formatted.strategy);
+
+			outputCache.set(cacheKey2, {
+				body: formatted.body,
+				strategy: formatted.strategy,
+				originalTokens: formatted.originalTokens,
+				compressedTokens: formatted.compressedTokens,
+				savingsPercent: formatted.savingsPercent,
+				originalHash: formatted.hash,
+			});
+
+			return {
+				content: [
+					{ type: "text", text: formatted.body },
+					{ type: "text", text: footer2 },
+				],
+			};
+		}
+	}
+
+	// ── Tee on failure (non-zero exit → cache full + show extracted errors) ──
+	if (params.exitCode !== undefined && params.exitCode !== 0) {
+		const failHash = sha256(contentText);
+		cache(store.dbPath.replace("/memory.db", ""), store.vaultPath, failHash, contentText);
+		const extracted = extractErrors(contentText);
+		const body = formatErrorBlock(extracted.errors, extracted.warnings, failHash);
+
+		db.recordCompression({
+			toolName,
+			originalHash: failHash,
+			originalTokens: contentText.length,
+			compressedTokens: body.length,
+			savingsPercent: Math.round((1 - body.length / Math.max(contentText.length, 1)) * 100),
+			strategy: "tee-on-failure",
+			obsidianNote: undefined,
+			sessionId: store.sessionId ?? undefined,
+		});
+
+		return {
+			content: [
+				{ type: "text", text: body },
+				{
+					type: "text",
+					text: `\n\n📦 tee-on-failure · hash ${failHash} · knapsack_retrieve("${failHash}") for complete error log`,
+				},
+			],
+		};
 	}
 
 	// ── Output cache (CacheAligner + Live-Zone) ───────────────

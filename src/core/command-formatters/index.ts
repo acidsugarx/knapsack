@@ -27,6 +27,7 @@ import { formatJest, formatVitest, matchJest, matchVitest } from "./javascript";
 import { formatNpmInstall, formatNpmTest, matchNpm } from "./npm";
 import { formatPytest, matchPytest } from "./python";
 import { formatCargoBuild, formatCargoTest, matchCargo } from "./rust";
+import { formatGoTest, matchGoTest } from "./test-runners";
 
 /** Parameters passed to a command formatter. */
 export interface FormatterParams {
@@ -97,6 +98,11 @@ const formatters: CommandFormatter[] = [
 		name: "vitest",
 		match: (cmd) => matchVitest(cmd),
 		format: (p) => formatVitest(p.output),
+	},
+	{
+		name: "go-test",
+		match: (cmd) => matchGoTest(cmd),
+		format: (p) => formatGoTest(p.output),
 	},
 ];
 

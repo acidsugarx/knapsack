@@ -19,6 +19,7 @@ import { discoverVault } from "./bridge/obsidian";
 import { registerCommands } from "./commands/index";
 import type { KnapsackDB } from "./core/database";
 import { createDB } from "./core/database";
+import { decayDetector } from "./core/decay-detector";
 import { getProjectRoot } from "./core/project";
 import type { KnapsackStore } from "./core/types";
 import { createDefaultRegistry } from "./pillar1-compression/default-registry";
@@ -83,6 +84,10 @@ export default async function knapsack(pi: ExtensionAPI) {
 		mkdirSync(home, { recursive: true });
 
 		db = await createDB(dbPath);
+
+		// Restore decay detector state from previous session
+		const savedDecay = db.getMeta("decay_detector_state");
+		if (savedDecay) decayDetector.deserialize(savedDecay);
 
 		// Initialize embeddings (optional, graceful fallback)
 		const { initEmbeddings, isAvailable } = await import("./pillar2-memory/embeddings");
@@ -185,6 +190,7 @@ export default async function knapsack(pi: ExtensionAPI) {
 	 */
 	pi.on("session_shutdown", async () => {
 		if (db) {
+			db.setMeta("decay_detector_state", decayDetector.serialize());
 			db.pruneMemories();
 			db.close();
 			db = null;

@@ -124,9 +124,17 @@ export interface CompressedSection {
 
 // ── Tool parameter schemas ────────────────────────────
 
-/** Parameters for knapsack_retrieve — recover original from CCR cache */
+/** Parameters for knapsack_retrieve — recover original from CCR cache, optionally filtered */
 export const KnapsackRetrieveParams = Type.Object({
 	hash: Type.String({ description: "Hash key from a previous compression" }),
+	grep: Type.Optional(
+		Type.String({ description: "Case-insensitive regex — return only matching lines" }),
+	),
+	lines: Type.Optional(
+		Type.String({ description: 'Line range "N-M" (1-indexed, inclusive) — e.g. "100-200"' }),
+	),
+	head: Type.Optional(Type.Number({ description: "Return first N lines" })),
+	tail: Type.Optional(Type.Number({ description: "Return last N lines" })),
 });
 
 /** Parameters for knapsack_search — keyword search across memory */
