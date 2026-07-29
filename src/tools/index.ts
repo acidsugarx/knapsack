@@ -88,10 +88,10 @@ export function registerTools(
 				store.vaultPath,
 				params.hash,
 				{
-					grep: params.grep as string | undefined,
-					lines: params.lines as string | undefined,
-					head: params.head as number | undefined,
-					tail: params.tail as number | undefined,
+					grep: (params as Record<string, unknown>).grep as string | undefined,
+					lines: (params as Record<string, unknown>).lines as string | undefined,
+					head: (params as Record<string, unknown>).head as number | undefined,
+					tail: (params as Record<string, unknown>).tail as number | undefined,
 				},
 			);
 			if (!original) {
