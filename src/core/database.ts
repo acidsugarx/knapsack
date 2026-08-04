@@ -425,6 +425,13 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 	db.run("CREATE INDEX IF NOT EXISTS idx_buffer_hash ON memory_buffer(content_hash)");
 	db.run("CREATE INDEX IF NOT EXISTS idx_buffer_status ON memory_buffer(status, ingestion_ts)");
 
+	// Migration: add UNIQUE constraint on buffer content_hash for idempotent INSERT OR IGNORE
+	try {
+		db.run(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_buffer_hash_unique ON memory_buffer(content_hash)",
+		);
+	} catch {}
+
 	/**
 	 * Save the database to disk — debounced.
 	 * Accumulates writes and flushes every 2s, or immediately via `saveNow()`.
