@@ -1,11 +1,27 @@
 /**
- * Bash output compression strategy — collapses logs and captures errors.
+ * Bash output compression — Headroom LogCompressor-style.
  *
- * Pipeline: ANSI strip → log template mining (Drain-style) → severity
- * classification (errors/warnings/info/other) → deduplication → tail.
+ * Pipeline:
+ * ANSI strip → stack trace protection → log template mining (Drain-style)
+ * → severity classification → error context extraction → deduplication
+ * → head + tail preservation.
+ *
+ * ## What's preserved (always verbatim)
+ *
+ * - Error lines + surrounding context (3 lines before/after)
+ * - Stack traces (file:line patterns, Traceback, panic traces)
+ * - First 5 lines (head) and last 15 lines (tail)
+ * - Warning lines deduplicated
+ *
+ * ## What's compressed
+ *
+ * - Repetitive log lines → template + count
+ * - Progress/INFO spam → summary line
+ * - Timestamps → <ts> placeholder for grouping
  *
  * @module bash-compression
  */
+
 import { sha256 } from "../../core/hash";
 import { estimateTokens, savingsPercent } from "../../core/tokens";
 import type { CompressedSection, CompressionResult } from "../../core/types";
@@ -17,9 +33,29 @@ function stripAnsi(text: string): string {
 	return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
+// ── Stack trace detection ──────────────────────────────
+
+/** Patterns that indicate a stack trace line — these are NEVER templated. */
+const STACK_TRACE_RE = [
+	/^\s+at\s+\S+.*\(/, // JS/TS: at function (file:line:col)
+	/^\s+at\s+\S+:\d+:\d+/, // JS/TS: at file:line:col
+	/^Traceback\s*\(/, // Python
+	/^\s+File\s+"[^"]+",\s+line\s+\d+/, // Python
+	/^panic:\s/, // Go
+	/^goroutine\s+\d+/, // Go
+	/^\s+\S+\.go:\d+/, // Go stack frame
+	/^\[ERROR\]/, // Explicit error marker
+	/^FATAL:/,
+	/^Error:\s/m,
+	/^Caused by:/,
+];
+
+function isStackTrace(line: string): boolean {
+	return STACK_TRACE_RE.some((re) => re.test(line));
+}
+
 // ── Line deduplication ─────────────────────────────────
 
-/** Deduplicate lines, returning each unique line with its occurrence count, sorted by frequency. */
 function deduplicateLines(lines: string[]): { line: string; count: number }[] {
 	const map = new Map<string, number>();
 	for (const line of lines) {
@@ -30,27 +66,27 @@ function deduplicateLines(lines: string[]): { line: string; count: number }[] {
 		.sort((a, b) => b.count - a.count);
 }
 
-// ── Log template mining (Drain-inspired) ────────────────
-//
-// Replaces digits / hex / uuids / emails with placeholders, then collapses
-// consecutive runs of identical templates into one line + count. Inspired
-// by Headroom's log_compressor and Drain. Lossless: the model still sees the
-// shape and frequency of repeated log spam without 800 near-identical lines.
+// ── Log template mining (Drain-style + timestamp-aware) ─
 
 const TEMPLATE_NORM_RE = [
-	// uuids
 	[/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<uuid>"],
-	// long hex (commit hashes, hashes)
-	[/\b[0-9a-f]{16,}\b/gi, "<hex>"],
-	// emails
+	[/\b[0-9a-f]{40,}\b/gi, "<sha>"],
+	[/\b[0-9a-f]{16,39}\b/gi, "<hex>"],
 	[/\S+@\S+\.\S+/g, "<email>"],
-	// ip addresses
 	[/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<ip>"],
-	// numbers (last so uuid/hex/ip already replaced)
+	// Timestamps — ISO 8601, syslog, common formats
+	[/\b\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?\b/g, "<ts>"],
+	[/\b\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\b/g, "<ts>"],
+	[
+		/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b/gi,
+		"<ts>",
+	],
+	// Hex addresses (0x...) and memory addresses
+	[/\b0x[0-9a-f]{8,}\b/gi, "<addr>"],
+	// Numbers (last)
 	[/\b\d+\b/g, "N"],
 ] as const;
 
-/** Replace volatile tokens (uuids, hex, IPs, numbers) with placeholders for template matching. */
 function normalizeTemplate(line: string): string {
 	let out = line;
 	for (const [re, replacement] of TEMPLATE_NORM_RE) {
@@ -59,34 +95,40 @@ function normalizeTemplate(line: string): string {
 	return out;
 }
 
-/** Minimum consecutive identical-template lines to count as a "template run". */
 const TEMPLATE_RUN_MIN = 3;
 
 interface TemplateRun {
-	/** First line verbatim — model sees one concrete example. */
 	sample: string;
 	count: number;
 }
 
 /**
- * Walk lines, group consecutive same-template runs, return templates and
- * the remaining (non-template) lines in original order.
- */
-/**
- * Walk lines, group consecutive same-template runs, return templates and
- * the remaining (non-template) lines in original order.
+ * Extract template runs from non-stack-trace, non-error lines.
+ * Stack traces and error lines are always kept verbatim.
  */
 function extractTemplates(lines: string[]): { templates: TemplateRun[]; rest: string[] } {
 	const templates: TemplateRun[] = [];
 	const rest: string[] = [];
 	let i = 0;
 	while (i < lines.length) {
-		const norm = normalizeTemplate(lines[i] ?? "");
+		const line = lines[i] ?? "";
+		// Never template stack traces or explicit errors
+		if (isStackTrace(line) || /^(?:error|fatal|panic)[:\s]/i.test(line)) {
+			rest.push(line);
+			i++;
+			continue;
+		}
+		const norm = normalizeTemplate(line);
 		let j = i + 1;
-		while (j < lines.length && normalizeTemplate(lines[j] ?? "") === norm) j++;
+		while (j < lines.length) {
+			const next = lines[j] ?? "";
+			if (isStackTrace(next) || /^(?:error|fatal|panic)[:\s]/i.test(next)) break;
+			if (normalizeTemplate(next) !== norm) break;
+			j++;
+		}
 		const count = j - i;
 		if (count >= TEMPLATE_RUN_MIN && norm.trim()) {
-			templates.push({ sample: lines[i] ?? "", count });
+			templates.push({ sample: line, count });
 		} else {
 			for (let k = i; k < j; k++) rest.push(lines[k] ?? "");
 		}
@@ -95,35 +137,81 @@ function extractTemplates(lines: string[]): { templates: TemplateRun[]; rest: st
 	return { templates, rest };
 }
 
+// ── Error context extraction ───────────────────────────
+
+/** Lines of context to keep before/after each error line. */
+const ERROR_CONTEXT = 3;
+
+/**
+ * Extract error lines with surrounding context from the original line array.
+ *
+ * For each error, keeps {@link ERROR_CONTEXT} lines before and after,
+ * separated by `---` between error blocks. Stack traces are automatically
+ * included since they immediately follow errors.
+ */
+function extractErrorBlocks(lines: string[], errorIndices: number[]): string[] {
+	const blocks: string[] = [];
+	const used = new Set<number>();
+
+	for (const ei of errorIndices.slice(0, 20)) {
+		// Avoid duplicate blocks (overlapping errors)
+		if (used.has(ei)) continue;
+
+		const start = Math.max(0, ei - ERROR_CONTEXT);
+		const end = Math.min(lines.length, ei + ERROR_CONTEXT + 1);
+
+		const block = lines.slice(start, end);
+		for (let k = start; k < end; k++) used.add(k);
+
+		if (blocks.length > 0) blocks.push("---");
+		blocks.push(...block);
+	}
+
+	return blocks;
+}
+
 // ── Severity detection ─────────────────────────────────
 
-/** Classify a line by severity: error, warning, info, or other. */
 function classifyLine(line: string): "error" | "warning" | "info" | "other" {
 	const lower = line.toLowerCase();
-	// Match actual error lines (ERROR/WARN prefix or stack traces), skip lines that just mention "error" in passing
-	if (/^\[error\]|^error[:\s]|^fatal[:\s]|^panic[:\s]|error\s+at/i.test(line)) return "error";
-	// Match [WARN] prefix, standard warning format, or deprecated/notice keywords
-	if (/\[warn\]|^warn(?:ing)?[:\s]/i.test(line)) return "warning";
+
+	// Stack traces are errors
+	if (isStackTrace(line)) return "error";
+
+	// Explicit error markers
+	if (
+		/^\[error\]|^error[:\s]|^fatal[:\s]|^panic[:\s]|^crit(?:ical)?[:\s]/i.test(line) ||
+		/\berror\s+at\b/i.test(line)
+	)
+		return "error";
+
+	// Warnings
+	if (/^\[warn\]|^warn(?:ing)?[:\s]/i.test(line)) return "warning";
 	if (/\bdeprecated\b|\bnotice\b/i.test(line) && !/error|fail/i.test(line)) return "warning";
+
+	// Info
 	if (/info|debug|trace|verbose/i.test(lower)) return "info";
+
 	return "other";
 }
 
 // ── Progress summarization ─────────────────────────────
 
-/** Summarise info/progress lines into a compact "compiled N, processed N" string. */
 function summarizeProgress(lines: string[]): string | null {
 	if (lines.length === 0) return null;
 
-	// Count compilation/build lines
 	const compiled = lines.filter((l) => /compil/i.test(l));
 	const processed = lines.filter((l) => /process/i.test(l));
 	const downloaded = lines.filter((l) => /download/i.test(l));
+	const installed = lines.filter((l) => /install/i.test(l));
+	const built = lines.filter((l) => /built|build/i.test(l));
 
 	const parts: string[] = [];
 	if (compiled.length) parts.push(`compiled ${compiled.length}`);
+	if (built.length) parts.push(`built ${built.length}`);
 	if (processed.length) parts.push(`processed ${processed.length}`);
 	if (downloaded.length) parts.push(`downloaded ${downloaded.length}`);
+	if (installed.length) parts.push(`installed ${installed.length}`);
 
 	if (parts.length === 0) return `${lines.length} info lines`;
 	return parts.join(", ");
@@ -133,59 +221,55 @@ function summarizeProgress(lines: string[]): string | null {
 
 /** Per-section size caps for bash output compression. */
 export interface BashCompressOptions {
-	/** Max lines in errors section */
+	/** Max error lines to show */
 	maxErrors?: number;
-	/** Max lines in warnings section */
+	/** Max warning lines to show */
 	maxWarnings?: number;
 	/** Max tail lines */
 	maxTail?: number;
+	/** Max head lines */
+	maxHead?: number;
 }
 
 /**
- * Compress bash output by stripping ANSI, mining log templates (Drain-style),
- * classifying severity, and collapsing repetitive lines.
+ * Compress bash output — Headroom LogCompressor-style.
  *
- * @param stdout - Combined stdout text. If `stderr` is also supplied it is
- * prepended so that error-traces and the actual program output are classified
- * together.
- * @param stderr - Optional stderr; prepended onto `stdout` before classification.
- * @param exitCode - Process exit code surfaced in the compressed header.
+ * Preserves: errors + context, stack traces, first/last N lines.
+ * Compresses: repetitive logs → templates, progress spam → summary.
+ *
+ * @param stdout - Combined stdout text. stderr is prepended if supplied.
+ * @param stderr - Optional stderr text.
+ * @param exitCode - Process exit code.
  * @param options - Per-section size caps.
- * @returns Compression result with templated, errors, warnings, progress, and tail sections.
  */
 export function compressBash(
-	/**
-	 * Combined stdout text. If `stderr` is also supplied it is prepended
-	 * so that error-traces and the actual program output are classified
-	 * together.
-	 */
 	stdout: string,
-	/** Optional stderr; prepended onto `stdout` before classification. */
 	stderr?: string,
-	/** Process exit code surfaced in the compressed header. */
 	exitCode?: number,
-	/** Per-section size caps. */
 	options: BashCompressOptions = {},
 ): CompressionResult {
-	const { maxErrors = 50, maxWarnings = 20, maxTail = 15 } = options;
+	const { maxErrors = 30, maxWarnings = 15, maxTail = 15, maxHead = 5 } = options;
 
 	const combined = stderr ? `${stderr}\n${stdout}` : stdout;
 	const clean = stripAnsi(combined);
 	const allLines = clean.split("\n");
 
-	// Pull template runs out first so repetitive INFO/progress spam doesn't
-	// flood the INFO section or dilute the tail.
+	// Step 1: Pull template runs out of non-critical lines
 	const { templates, rest: lines } = extractTemplates(allLines);
 
+	// Step 2: Classify remaining lines
 	const errors: string[] = [];
+	const errorIndices: number[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
 	const others: string[] = [];
 
-	for (const line of lines) {
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]!;
 		switch (classifyLine(line)) {
 			case "error":
 				errors.push(line);
+				errorIndices.push(i);
 				break;
 			case "warning":
 				warnings.push(line);
@@ -201,36 +285,38 @@ export function compressBash(
 
 	const sections: CompressedSection[] = [];
 
-	// U-curve order: critical (errors/warnings) at top, info (templates/progress) in middle, recent (tail) at bottom
+	// Head — first N lines (top attention)
+	const head = allLines.slice(0, maxHead).filter((l) => l.trim());
+	if (head.length > 0) {
+		sections.push({ title: "HEAD", content: head.join("\n") });
+	}
 
-	// Errors — always show, capped (top — high attention)
+	// Errors — with context blocks (critical, top attention)
 	if (errors.length > 0) {
-		const shown = errors.slice(0, maxErrors);
-		const suffix = errors.length > maxErrors ? `\n(+${errors.length - maxErrors} more errors)` : "";
+		const errorBlocks = extractErrorBlocks(lines, errorIndices);
+		// Cap total error lines
+		const shown = errorBlocks.slice(0, maxErrors * 4); // each error block is ~7 lines
+		const suffix = errorBlocks.length > shown.length ? `\n(+ more error context)` : "";
 		sections.push({
-			title: "ERRORS",
-			content:
-				deduplicateLines(shown)
-					.map((d) => (d.count > 1 ? `${d.line} (×${d.count})` : d.line))
-					.join("\n") + suffix,
+			title: `ERRORS (${errors.length})`,
+			content: shown.join("\n") + suffix,
 		});
 	}
 
-	// Warnings — grouped (top — high attention)
+	// Warnings — deduplicated
 	if (warnings.length > 0) {
 		const deduped = deduplicateLines(warnings);
 		const shown = deduped.slice(0, maxWarnings);
 		const suffix =
 			deduped.length > maxWarnings ? `\n(+${deduped.length - maxWarnings} more warning types)` : "";
-
 		sections.push({
-			title: "WARNINGS",
+			title: `WARNINGS (${warnings.length})`,
 			content:
 				shown.map((d) => (d.count > 1 ? `${d.line} (×${d.count})` : d.line)).join("\n") + suffix,
 		});
 	}
 
-	// Templates — repetitive log patterns collapsed to one line + count (middle — low attention)
+	// Templates — repetitive log patterns
 	if (templates.length > 0) {
 		const shown = templates.slice(0, 20);
 		const suffix = templates.length > 20 ? `\n(+${templates.length - 20} more template types)` : "";
@@ -240,26 +326,20 @@ export function compressBash(
 		});
 	}
 
-	// Progress summary (middle — low attention)
+	// Progress summary
 	const progressSummary = summarizeProgress(infos);
 	if (progressSummary) {
-		sections.push({
-			title: "PROGRESS",
-			content: progressSummary,
-		});
+		sections.push({ title: "PROGRESS", content: progressSummary });
 	}
 
-	// Tail — last N non-empty lines (bottom — high attention)
+	// Tail — last N lines (bottom attention)
 	const tail = others.filter((l) => l.trim()).slice(-maxTail);
 	if (tail.length > 0) {
-		sections.push({
-			title: "TAIL",
-			content: tail.join("\n"),
-		});
+		sections.push({ title: "TAIL", content: tail.join("\n") });
 	}
 
 	// Build output
-	const header = `exit=${exitCode ?? "?"} · errors=${errors.length} · warnings=${warnings.length} · lines=${lines.length}`;
+	const header = `exit=${exitCode ?? "?"} · errors=${errors.length} · warnings=${warnings.length} · lines=${allLines.length}`;
 	const body = sections
 		.filter((s) => s.content)
 		.map((s) => `── ${s.title} ──\n${s.content}`)

@@ -209,6 +209,26 @@ src/
   No separate search paths for the model.
 - **DB saves are debounced.** 2s debounce, `saveNow()` on close. Not per-write.
 
+<adapter_design priority="HIGH">
+  **Core-first, not adapter-first.** Any behavior that must apply across ALL
+  adapters (Pi, OpenCode, MCP, Claude Code, future) MUST live in
+  `src/core/pipeline.ts` — the agent-agnostic `compress()` function. Do NOT
+  duplicate bypass, validation, or routing logic per adapter and hope it stays
+  in sync.
+
+  Adapters are THIN wrappers. Their only job: extract text from the agent's
+  event format and delegate to `compress()`. If you find yourself adding the
+  same `if (toolName === "...")` check in two adapters, you already made a
+  mistake — the check belongs in `compress()`.
+
+  Example: `knapsack_retrieve` bypass. The Pi hook (`hook.ts`) has it because
+  that hook uses inline compression logic instead of calling `compress()`.
+  The OpenCode and MCP adapters call `compress()`, so the bypass is centralized
+  there. Two locations is already one too many — the fix is to refactor the Pi
+  hook to call `compress()` and remove the inline bypass. Until then, any new
+  adapter that calls `compress()` gets the bypass for free.
+</adapter_design>
+
 ## Environment Variables
 
 | Variable | Default | Purpose |

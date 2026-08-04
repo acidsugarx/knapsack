@@ -16,6 +16,7 @@ import { compressDiff } from "./strategies/diff";
 import { compressFind } from "./strategies/find";
 import { compressGrep } from "./strategies/grep";
 import { compressJson } from "./strategies/json";
+import { compressSqueez, isSqueezAutoAvailable } from "./strategies/squeez";
 import { detectLanguageFromExt } from "./tree-sitter-loader";
 
 /**
@@ -27,6 +28,41 @@ import { detectLanguageFromExt } from "./tree-sitter-loader";
  */
 export function createDefaultRegistry(): StrategyRegistry {
 	const registry = createRegistry();
+
+	// ── Squeez strategy (task-conditioned, highest priority) ──
+	// Registered first so toolMapping maps content types to squeez when
+	// the server is configured. squeez returns null when unavailable,
+	// and the registry falls through to the next matching strategy.
+	// However, with toolMapping, the first registration wins and no
+	// fallback occurs. So we only register squeez for its own content
+	// types — it will be tried via content-type routing when the tool
+	// output matches its detectors or explicit squeez tool name.
+	if (isSqueezAutoAvailable()) {
+		registry.register({
+			name: "squeez",
+			label: "Squeez — Task-Conditioned Pruning",
+			// Note: these are content-type labels for routing. Squeez handles
+			// all tool output types via its model, so we list the most common
+			// ones. When a tool output matches, squeez runs FIRST; if it
+			// returns null (no query, server down, output too small), the
+			// registry falls through to detector-based routing then heuristic.
+			contentTypes: ["squeez"],
+			threshold: 500,
+			compress(output, ctx) {
+				return compressSqueez(output, ctx);
+			},
+		});
+
+		// Squeez content detector — runs BEFORE type-specific detectors.
+		// Claims any output when a focused query is available in the context
+		// AND the output is large enough to benefit from model extraction.
+		registry.registerDetector({
+			name: "squeez",
+			detect(output) {
+				return output.length >= 500;
+			},
+		});
+	}
 
 	// ── Bash strategy ────────────────────────────────────
 	registry.register({

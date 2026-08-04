@@ -60,6 +60,9 @@ export default (async (_ctx: unknown) => {
 			input: { tool: string; sessionID: string; callID: string; args: Record<string, unknown> },
 			output: { title: string; output: string; metadata: unknown },
 		) => {
+			// knapsack_retrieve exists solely to return uncompressed originals.
+			// Re-compressing its output defeats its purpose.
+			if (input.tool === "knapsack_retrieve") return;
 			await ensureInit(input.sessionID);
 			if (!db || !store || !registry) return;
 			const result = await compress({

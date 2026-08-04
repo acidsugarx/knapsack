@@ -230,6 +230,93 @@ function formatCardinality(c: CardinalityInfo): string {
 	return `${c.unique}/${c.total} unique`;
 }
 
+// ── SmartCrusher-style helpers ─────────────────────────
+
+/** Fields whose presence indicates an error item. */
+const ERROR_FIELD_PATTERNS = [
+	{ key: /^(?:status|level|severity)$/i, value: /^(?:error|fail|fatal|critical|panic)$/i },
+	{ key: /isError/i, value: /^true$/i },
+	{ key: /^(?:exitCode|exit_code)$/i, value: /^[1-9]\d*$/ },
+];
+
+/** Value patterns that indicate an error regardless of key name. */
+const ERROR_VALUE_PATTERNS = [
+	/error/i,
+	/fail(?:ed|ure)?/i,
+	/fatal/i,
+	/panic/i,
+	/timeout/i,
+	/refused/i,
+	/denied/i,
+];
+
+/**
+ * Find items in an array that contain error indicators.
+ * SmartCrusher-style: error items are always preserved (100% preservation rate).
+ */
+function findErrorItems(arr: unknown[]): unknown[] {
+	return arr.filter((item) => {
+		if (typeof item !== "object" || item === null) return false;
+		const obj = item as Record<string, unknown>;
+		for (const [key, val] of Object.entries(obj)) {
+			if (typeof val !== "string" && typeof val !== "boolean" && typeof val !== "number") continue;
+			const s = String(val);
+			// Check field-name + value patterns
+			for (const { key: keyRe, value: valueRe } of ERROR_FIELD_PATTERNS) {
+				if (keyRe.test(key) && valueRe.test(s)) return true;
+			}
+			// Check value-only patterns
+			for (const vp of ERROR_VALUE_PATTERNS) {
+				if (vp.test(s)) return true;
+			}
+		}
+		return false;
+	});
+}
+
+/**
+ * Find items with numeric fields that are statistical outliers (>2σ from mean).
+ * Uses the same threshold as computeStats for consistency.
+ */
+function findAnomalyItems(
+	arr: Record<string, unknown>[],
+	sample: Record<string, unknown>[],
+): Record<string, unknown>[] {
+	// Build per-key stats from the sample
+	const keyStats = new Map<string, { mean: number; stddev: number }>();
+	const keys = Object.keys(sample[0] ?? {});
+
+	for (const key of keys) {
+		const values: number[] = [];
+		for (const item of sample) {
+			const v = item[key];
+			if (typeof v === "number" && !Number.isNaN(v)) values.push(v);
+		}
+		if (values.length < 5) continue;
+		const mean = values.reduce((a, b) => a + b, 0) / values.length;
+		const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+		const stddev = Math.sqrt(variance);
+		if (stddev > 0) keyStats.set(key, { mean, stddev });
+	}
+
+	if (keyStats.size === 0) return [];
+
+	// Find items where any numeric field is an outlier
+	const anomalies: Record<string, unknown>[] = [];
+	for (const item of arr) {
+		for (const [key, { mean, stddev }] of keyStats) {
+			const v = item[key];
+			if (typeof v === "number" && Math.abs(v - mean) > OUTLIER_STDEVS * stddev) {
+				anomalies.push(item);
+				break;
+			}
+		}
+		if (anomalies.length >= 10) break;
+	}
+
+	return anomalies;
+}
+
 /**
  * Compress a JSON string by extracting structure.
  *
@@ -301,6 +388,32 @@ export function compressJson(text: string): CompressionResult {
 			}
 		}
 
+		// ── Error-aware preservation (SmartCrusher-style) ──
+		// Items containing error indicators are always shown — critical for debugging.
+		const errorItems = findErrorItems(arr);
+		if (errorItems.length > 0) {
+			const shown = errorItems.slice(0, 10);
+			const suffix = errorItems.length > 10 ? `\n(+${errorItems.length - 10} more errors)` : "";
+			sections.push(
+				`Errors (${errorItems.length}):\n${shown.map((item) => `  ${JSON.stringify(item).slice(0, 150)}`).join("\n")}${suffix}`,
+			);
+		}
+
+		// ── Anomaly items (SmartCrusher-style) ──
+		// Items with numeric fields >2σ from mean — potential outliers worth inspecting.
+		if (arr.length > 0 && typeof arr[0] === "object" && arr[0] !== null && !Array.isArray(arr[0])) {
+			const anomalyItems = findAnomalyItems(
+				arr as Record<string, unknown>[],
+				arr.slice(0, Math.min(arr.length, STATS_SAMPLE_SIZE)) as Record<string, unknown>[],
+			);
+			if (anomalyItems.length > 0) {
+				const shown = anomalyItems.slice(0, 5);
+				sections.push(
+					`Anomalies (${anomalyItems.length}):\n${shown.map((item) => `  ${JSON.stringify(item).slice(0, 150)}`).join("\n")}`,
+				);
+			}
+		}
+
 		if (arr.length > 0) {
 			sections.push(`First: ${JSON.stringify(arr[0]).slice(0, 200)}`);
 			if (arr.length > 1) {
@@ -322,12 +435,28 @@ export function compressJson(text: string): CompressionResult {
 
 		sections.push(`── OBJECT (${Object.keys(obj).length} keys) ──`);
 
-		const shape = inferShapeDeep(obj);
-		if (Object.keys(shape).length > 0) {
-			const shapeStr = Object.entries(shape)
-				.map(([k, v]) => `  ${k}: ${v}`)
-				.join("\n");
-			sections.push(`Shape:\n${shapeStr}`);
+		// Show actual values for primitive fields; inline shape for nested
+		const entries: string[] = [];
+		for (const [key, val] of Object.entries(obj)) {
+			if (val === null) {
+				entries.push(`  ${key}: null`);
+			} else if (typeof val === "string") {
+				const s = val.length > 120 ? `${val.slice(0, 120)}...` : val;
+				entries.push(`  ${key}: "${s}"`);
+			} else if (typeof val === "number" || typeof val === "boolean") {
+				entries.push(`  ${key}: ${JSON.stringify(val)}`);
+			} else {
+				// Object or array — inline shape (types only, no values)
+				const t = Array.isArray(val) ? "array" : "object";
+				const nestedShape = inferShapeDeep(val);
+				const nestedStr = Object.entries(nestedShape)
+					.map(([k, v]) => `${k}:${v}`)
+					.join(", ");
+				entries.push(`  ${key}: ${t}${nestedStr ? `{${nestedStr}}` : ""}`);
+			}
+		}
+		if (entries.length > 0) {
+			sections.push(`Values:\n${entries.join("\n")}`);
 		}
 	}
 

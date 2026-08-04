@@ -46,6 +46,9 @@ export interface CompressParams {
 	toolName: string;
 	/** File path the tool operated on (for language detection), if any */
 	path?: string;
+	/** Focused extraction query for task-conditioned pruning (e.g. "find the failure block").
+	 * Passed through to CompressionContext for strategies like squeez. */
+	query?: string;
 	/** Shell command that was run (for command delta detection), if any */
 	command?: string;
 	/** Exit code of the command (0 = success, non-zero = failure) */
@@ -68,6 +71,37 @@ export interface TextBlock {
 export interface CompressResult {
 	/** Modified content blocks (compressed body + footer, or redacted body) */
 	content: TextBlock[];
+}
+
+/**
+ * Return a strategy-specific hint for the compression footer so the model
+ * knows what was preserved and what was dropped — and when to retrieve.
+ *
+ * Generic "summary is sufficient" is false for code (signatures only) and
+ * grep (file list only), causing the model to either trust incomplete data
+ * or waste turns on unnecessary retrievals.
+ *
+ * @param strategy - Strategy name from the CompressionResult
+ * @returns One-line hint embedded in the compression footer
+ */
+export function strategyHint(strategy: string): string {
+	switch (strategy) {
+		case "code":
+		case "code-ast":
+			return "signatures only — knapsack_retrieve(hash) for function bodies";
+		case "grep":
+			return "file list only — knapsack_retrieve(hash) for matching lines";
+		case "find":
+			return "path list only";
+		case "bash":
+			return "templates + errors — knapsack_retrieve(hash) for full output";
+		case "diff":
+			return "changes trimmed — knapsack_retrieve(hash) for full diff";
+		case "json":
+			return "structure only — knapsack_retrieve(hash) for values";
+		default:
+			return "summary is sufficient for listing/overview/structure tasks";
+	}
 }
 
 /**
@@ -201,7 +235,7 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 			driftDetections.length > 0
 				? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
 				: "";
-		const footer = `\n\n📦 ${cached.savingsPercent}% smaller · hash ${cached.originalHash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+		const footer = `\n\n📦 ${cached.savingsPercent}% smaller · hash ${cached.originalHash} · ${strategyHint(cached.strategy)}${driftHint}`;
 
 		db.recordCompression({
 			toolName,
@@ -233,7 +267,7 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 
 	// ── Tag protection + compression ──────────────────────────
 	const { protectedText, tags } = protectTags(contentForPipeline);
-	const result = await registry.compress(protectedText, { toolName, path });
+	const result = await registry.compress(protectedText, { toolName, path, query: params.query });
 
 	const scanSource = result?.body ?? protectedText;
 	const secrets = detectSecrets(scanSource);
@@ -277,7 +311,7 @@ export async function compress(params: CompressParams): Promise<CompressResult |
 		driftDetections.length > 0
 			? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
 			: "";
-	const footer = `\n\n📦 ${result.savingsPercent}% smaller · hash ${result.hash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+	const footer = `\n\n📦 ${result.savingsPercent}% smaller · hash ${result.hash} · ${strategyHint(result.strategy)}${driftHint}`;
 
 	outputCache.set(cacheKey, {
 		body: result.body,

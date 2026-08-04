@@ -1,23 +1,17 @@
 /**
- * Code compression strategy — extract structure, collapse bodies.
+ * Code compression strategy — Headroom-style: extract structure + body snippets.
  *
  * ## Approach
  *
- * Uses regex-based heuristics to extract imports, exports, function/class
- * signatures, and type definitions. Function bodies are collapsed to `{…}`
- * with line counts.
+ * Uses regex-based heuristics to extract imports, exports, and
+ * function/class definitions with the first 5 lines of each body preserved.
+ * The model can understand the logical flow without needing knapsack_retrieve.
  *
- * ## Limitations (v0.1)
+ * ## Limitations
  *
  * - Regex-based — won't handle all edge cases (nested generics, complex decorators)
- * - No AST awareness — can't distinguish method overrides from new methods
+ * - Prefer the tree-sitter AST strategy (code-ast.ts) when grammars are available
  * - Language support: TypeScript, JavaScript, Python (basic)
- *
- * ## Future
- *
- * When tree-sitter WASM is available as optional dependency, a tree-sitter
- * strategy will replace this with full AST accuracy. This strategy remains
- * as the zero-dependency fallback.
  *
  * @module code-compression
  */
@@ -82,20 +76,25 @@ function extractExports(source: string): string[] {
 	return [...new Set(exports)];
 }
 
+/** Maximum body lines to preserve for function/method/class definitions. */
+const MAX_BODY_LINES = 5;
+
 /**
- * Extract function and method signatures.
+ * Extract function, method, and class definitions with body snippet preservation.
  *
- * Uses regex to find lines that look like function/method/class declarations.
- * Includes the opening brace line if on the same line, collapsed to {…}.
+ * For each declaration, this extracts the signature line and the first
+ * {@link MAX_BODY_LINES} lines of the body (indented), with a line-count
+ * marker when truncated. This preserves enough signal for the model to
+ * understand the logic without needing knapsack_retrieve for simple edits.
  *
- * This is a heuristic — for full accuracy, use the tree-sitter strategy.
+ * Uses regex heuristics — for full accuracy, use the tree-sitter strategy.
  */
-function extractSignatures(source: string): string[] {
-	const signatures: string[] = [];
+function extractDefinitions(source: string): string[] {
+	const defs: string[] = [];
 	const lines = source.split("\n");
 
-	for (const line of lines) {
-		const trimmed = line.trim();
+	for (let i = 0; i < lines.length; i++) {
+		const trimmed = lines[i]!.trim();
 		if (!trimmed) continue;
 
 		// Match declaration patterns
@@ -110,27 +109,95 @@ function extractSignatures(source: string): string[] {
 				trimmed,
 			);
 
-		if (isSig) {
-			// Collapse inline body to {…}
-			const collapsed = trimmed.replace(/\s*\{[^}]*\}\s*$/, " {…}").replace(/\s*\{.*$/, " {…}");
-			signatures.push(collapsed);
+		if (!isSig) continue;
+
+		// Check for inline body (single-line function)
+		if (/\{\s*[^}]*\}/.test(trimmed)) {
+			defs.push(trimmed.replace(/\s*\{[^}]*\}\s*$/, " {…}"));
+			continue;
 		}
+
+		// Multi-line function: extract body snippet
+		const sig = trimmed.replace(/\s*\{.*$/, "");
+
+		// Find the opening brace — may be on next line (C-style) or on same line
+		let bodyStart = i;
+		if (trimmed.endsWith("{") || trimmed.endsWith(":")) {
+			bodyStart = i + 1;
+		} else {
+			// Look for brace on next non-empty line
+			let j = i + 1;
+			while (j < lines.length && lines[j]!.trim() === "") j++;
+			if (j < lines.length && lines[j]!.trim() === "{") {
+				bodyStart = j + 1;
+			}
+		}
+
+		if (bodyStart >= lines.length) {
+			defs.push(`${sig} {…}`);
+			continue;
+		}
+
+		// Collect first MAX_BODY_LINES of body
+		const bodyLines: string[] = [];
+		let bodyCount = 0;
+		let k = bodyStart;
+		while (k < lines.length && bodyCount < MAX_BODY_LINES) {
+			const bl = lines[k]!.trim();
+			if (bl === "}" || bl === "};" || bl === ");") break;
+			if (bl) {
+				bodyLines.push(bl.length > 100 ? `${bl.slice(0, 97)}…` : bl);
+				bodyCount++;
+			}
+			k++;
+		}
+
+		// Rough estimate of total body lines
+		let bodyEnd = k;
+		while (
+			bodyEnd < lines.length &&
+			lines[bodyEnd]!.trim() !== "}" &&
+			lines[bodyEnd]!.trim() !== "};"
+		) {
+			bodyEnd++;
+		}
+		const remainingLines = bodyEnd - k;
+
+		if (bodyLines.length > 0) {
+			const snippet = bodyLines.map((l) => `    ${l}`).join("\n");
+			if (remainingLines > 0) {
+				defs.push(`${sig} {\n${snippet}\n    … (${remainingLines} more lines)\n}`);
+			} else {
+				defs.push(`${sig} {\n${snippet}\n}`);
+			}
+		} else {
+			defs.push(`${sig} {…}`);
+		}
+
+		// Skip to end of this function
+		i = Math.max(i, bodyEnd);
 	}
 
-	return signatures;
+	return defs;
 }
 
 /**
- * Compress source code by extracting structure and collapsing bodies.
+ * Compress source code — Headroom-style: extract structure + body snippets.
+ *
+ * Preserves imports, exports, and definition signatures with the first
+ * {@link MAX_BODY_LINES} lines of each body. The model can see the logical
+ * flow without needing knapsack_retrieve for simple understanding.
+ *
+ * Falls back to the tree-sitter AST strategy when grammars are available.
  *
  * @param source - Source code to compress
- * @param language - Language hint ("typescript", "javascript", "python")
- * @returns Compression result with structured outline
+ * @param _language - Language hint (unused, regex is language-agnostic)
+ * @returns Compression result with structured outline + body snippets
  */
 export function compressCode(source: string, _language = "typescript"): CompressionResult {
 	const imports = extractImports(source);
 	const exports = extractExports(source);
-	const signatures = extractSignatures(source);
+	const definitions = extractDefinitions(source);
 
 	const lines = source.split("\n");
 	const stats = {
@@ -138,7 +205,7 @@ export function compressCode(source: string, _language = "typescript"): Compress
 		chars: source.length,
 		imports: imports.length,
 		exports: exports.length,
-		signatures: signatures.length,
+		definitions: definitions.length,
 	};
 
 	const sections: string[] = [];
@@ -155,13 +222,13 @@ export function compressCode(source: string, _language = "typescript"): Compress
 		);
 	}
 
-	if (signatures.length > 0) {
+	if (definitions.length > 0) {
 		sections.push(
-			`── SIGNATURES (${signatures.length}) ──\n${signatures.slice(0, 30).join("\n")}${signatures.length > 30 ? `\n(+${signatures.length - 30} more)` : ""}`,
+			`── DEFINITIONS (${definitions.length}) ──\n${definitions.slice(0, 15).join("\n")}${definitions.length > 15 ? `\n(+${definitions.length - 15} more)` : ""}`,
 		);
 	}
 
-	const body = `📦 ${stats.lines} lines · ${stats.imports} imports · ${stats.exports} exports · ${stats.signatures} signatures\n\n${sections.join("\n\n")}`;
+	const body = `📦 ${stats.lines} lines · ${stats.imports} imports · ${stats.exports} exports · ${stats.definitions} definitions\n\n${sections.join("\n\n")}`;
 
 	const originalTokens = estimateTokensCode(source);
 	const compressedTokens = estimateTokens(body);

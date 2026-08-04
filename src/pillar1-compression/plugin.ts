@@ -86,6 +86,9 @@ export interface CompressionContext {
 	exitCode?: number;
 	/** File path the tool operated on (read/edit/write) — used for language detection */
 	path?: string;
+	/** Focused extraction query for task-conditioned pruning (e.g. "find the failure block").
+	 * When set, strategies like squeez use it to preserve only relevant evidence. */
+	query?: string;
 }
 
 // ── Content detector interface ──────────────────────────

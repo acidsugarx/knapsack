@@ -34,6 +34,7 @@
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import type { KnapsackDB } from "../core/database";
 import { sha256 } from "../core/hash";
+import { strategyHint } from "../core/pipeline";
 import { detectSecrets, redactSecrets } from "../core/security";
 import type { KnapsackStore } from "../core/types";
 import { checkDrift } from "../pillar2-memory/drift";
@@ -66,6 +67,13 @@ export async function compressionHook(
 	const { toolName } = event;
 	const path = typeof event.input?.path === "string" ? event.input.path : undefined;
 
+	// ── Bypass for knapsack_retrieve ──────────────────────────
+	// This tool exists solely to return the full original of a previously
+	// compressed output.  Re-compressing it would defeat the purpose —
+	// the AI would see the same shape-only summary it called retrieve to
+	// escape from.  Let it pass through untouched.
+	if (toolName === "knapsack_retrieve") return;
+
 	// Extract text content from the event
 	const contentText = extractTextContent(event.content);
 	if (!contentText) return;
@@ -82,7 +90,7 @@ export async function compressionHook(
 			driftDetections.length > 0
 				? ` · ⚠️ DRIFT: ${driftDetections.map((d) => d.anchor.statement).join("; ")}`
 				: "";
-		const footer = `\n\n📦 ${cached.savingsPercent}% smaller · hash ${cached.originalHash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+		const footer = `\n\n📦 ${cached.savingsPercent}% smaller · hash ${cached.originalHash} · ${strategyHint(cached.strategy)}${driftHint}`;
 
 		// Record stats (idempotent — DB uses INSERT OR IGNORE by original_hash)
 		db.recordCompression({
@@ -177,7 +185,7 @@ export async function compressionHook(
 			: "";
 	const footer = `
 
-📦 ${result.savingsPercent}% smaller · hash ${result.hash} · summary is sufficient for listing/overview/structure tasks${driftHint}`;
+📦 ${result.savingsPercent}% smaller · hash ${result.hash} · ${strategyHint(result.strategy)}${driftHint}`;
 
 	// Cache the fully processed output for future cache hits (CacheAligner +
 	// Live-Zone). Only the body and stats are cached; the footer is rebuilt
