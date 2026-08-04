@@ -204,9 +204,13 @@ export async function scoreAndRank(
 	const bm25Ranks = new Map<number, number>();
 	for (let rank = 0; rank < bm25Sorted.length; rank++) {
 		const entry = bm25Sorted[rank]!;
-		const prev = rank > 0 ? bm25Sorted[rank - 1] : null;
-		const effectiveRank = prev && prev.score === entry.score ? bm25Ranks.get(prev.i)! : rank;
-		bm25Ranks.set(entry.i, effectiveRank);
+		if (entry.score === 0) {
+			bm25Ranks.set(entry.i, entries.length);
+		} else {
+			const prev = rank > 0 ? bm25Sorted[rank - 1] : null;
+			const effectiveRank = prev && prev.score === entry.score ? bm25Ranks.get(prev.i)! : rank;
+			bm25Ranks.set(entry.i, effectiveRank);
+		}
 	}
 
 	// Assign embedding ranks

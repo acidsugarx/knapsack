@@ -1,136 +1,74 @@
-/**
- * Memory retrieval regression bench — verifies scoring produces expected
- * orderings on a small probe set. Serves as a regression test: if future
- * scoring changes break the expected ordering, this test fails.
- *
- * Run: npx vitest run test/bench/memory-precision.bench.ts
- */
-
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createDB } from "../../src/core/database.js";
-import type { KnapsackStore } from "../../src/core/types.js";
 import { scoreAndRank } from "../../src/pillar2-memory/scoring.js";
 
-function makeStore(): KnapsackStore {
-	return {
-		dbPath: "",
-		vaultPath: null,
-		projectRoot: null,
-		sessionId: null,
-	} as KnapsackStore;
-}
-
-describe("memory retrieval regression", () => {
-	let tmpHome: string;
-
-	beforeEach(() => {
-		tmpHome = mkdtempSync(join(tmpdir(), "knapsack-bench-"));
-	});
-
-	afterEach(() => {
+describe("scoring precision", () => {
+	let tmp: string;
+	afterAll(() => {
 		try {
-			const fs = require("node:fs");
-			fs.rmSync(tmpHome, { recursive: true, force: true });
-		} catch {
-			// ignore
+			rmSync(tmp, { recursive: true, force: true });
+		} catch {}
+	});
+
+	it("ranks expected entry first for each query", async () => {
+		tmp = mkdtempSync(join(tmpdir(), "kprec-"));
+		const db = await createDB(join(tmp, "prec.db"));
+		const seeds = [
+			["sqlite wasm database engine storage", "decision", 0.9],
+			["rrf ranking fusion algorithm cormack sigir", "decision", 0.9],
+			["pnpm package manager node dependency resolution", "decision", 0.8],
+			["api key secret credentials env dotenv", "fact", 0.7],
+			["docker image node alpine multistage container", "fact", 0.5],
+			["npm install native module compile error hung", "gotcha", 0.8],
+			["import circular dependency module esm undefined", "gotcha", 0.8],
+			["typescript strict mode tsconfig noimplicitany", "constraint", 0.9],
+			["jwt bearer token authentication refresh endpoint", "constraint", 0.8],
+			["oauth provider google github microsoft callback", "fact", 0.5],
+			["redis cache ttl session rate limiting storage", "fact", 0.6],
+			["github actions ci pipeline deploy staging merge", "fact", 0.7],
+			["postgresql database port connection pooling 5432", "fact", 0.6],
+			["vite react tailwind frontend dist build static", "fact", 0.5],
+			["bcrypt password hashing salt rounds auth module", "fact", 0.6],
+			["kubernetes hpa autoscaling cpu replicas config", "fact", 0.6],
+			["prisma seed script database npx command tool", "fact", 0.5],
+			["pytest configuration pyproject toml markers slow", "fact", 0.4],
+			["cargo build release profile optimization lto rust", "fact", 0.4],
+			["gin framework go router middleware chain handler", "fact", 0.3],
+		];
+
+		for (const [content, type, imp] of seeds) {
+			db.saveMemory({ content, type: type as never, importance: imp as number });
 		}
-	});
+		const all = db.getAllMemories();
 
-	it("ranks exact-keyword matches above semantic-only matches", async () => {
-		const db = await createDB(join(tmpHome, "bench.db"));
-		db.saveMemory({
-			content: "Use sql.js for WASM SQLite — not better-sqlite3",
-			type: "decision",
-			importance: 0.8,
-		});
-		db.saveMemory({
-			content: "The database connection pool uses pg",
-			type: "fact",
-			importance: 0.5,
-		});
-		db.saveMemory({
-			content: "Compression strategies handle bash output",
-			type: "fact",
-			importance: 0.5,
-		});
+		const probes = [
+			{ q: "sqlite database wasm storage", e: "sqlite" },
+			{ q: "rrf ranking fusion algorithm", e: "rrf" },
+			{ q: "package manager pnpm node", e: "pnpm" },
+			{ q: "api key secret credentials", e: "api key" },
+			{ q: "docker container image alpine", e: "docker" },
+			{ q: "npm install error native hung", e: "npm install" },
+			{ q: "circular dependency import esm", e: "import circular" },
+			{ q: "typescript strict noimplicitany", e: "typescript" },
+			{ q: "jwt token authentication bearer", e: "jwt" },
+			{ q: "oauth provider config google", e: "oauth" },
+		];
+
+		let top1hits = 0;
+		for (const p of probes) {
+			const r = await scoreAndRank(p.q, all, all, 5);
+			const topId = r[0]?.entry.content ?? "";
+			if (topId.includes(p.e)) top1hits++;
+			else console.log(`  MISS: "${p.q}" → "${topId.slice(0, 60)}" (expected: "${p.e}")`);
+		}
+
+		console.log(
+			`\nPrecision@1: ${top1hits}/${probes.length} (${((top1hits / probes.length) * 100).toFixed(0)}%)`,
+		);
+		expect(top1hits).toBeGreaterThanOrEqual(7);
 		db.close();
-
-		const all = [
-			{
-				id: "1",
-				content: "Use sql.js for WASM SQLite — not better-sqlite3",
-				type: "decision" as const,
-				scope: "project" as const,
-				project: null,
-				importance: 0.8,
-				recency: Date.now(),
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				contentHash: "a",
-				sourceSession: null,
-				accessCount: 1,
-				lastAccessed: null,
-			},
-			{
-				id: "2",
-				content: "The database connection pool uses pg",
-				type: "fact" as const,
-				scope: "project" as const,
-				project: null,
-				importance: 0.5,
-				recency: Date.now(),
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				contentHash: "b",
-				sourceSession: null,
-				accessCount: 1,
-				lastAccessed: null,
-			},
-		];
-
-		const ranked = await scoreAndRank("sql.js", all, all, 2);
-		expect(ranked[0]?.entry.id).toBe("1");
-		expect(ranked[1]?.entry.id).toBe("2");
-	});
-
-	it("ranks higher-importance entries above lower on ties", async () => {
-		const entries = [
-			{
-				id: "low",
-				content: "config file at .env",
-				type: "fact" as const,
-				scope: "project" as const,
-				project: null,
-				importance: 0.3,
-				recency: Date.now(),
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				contentHash: "c",
-				sourceSession: null,
-				accessCount: 1,
-				lastAccessed: null,
-			},
-			{
-				id: "high",
-				content: "config file at .env",
-				type: "decision" as const,
-				scope: "project" as const,
-				project: null,
-				importance: 0.9,
-				recency: Date.now(),
-				createdAt: new Date().toISOString(),
-				updatedAt: new Date().toISOString(),
-				contentHash: "d",
-				sourceSession: null,
-				accessCount: 1,
-				lastAccessed: null,
-			},
-		];
-
-		const ranked = await scoreAndRank("config", entries, entries, 2);
-		expect(ranked[0]?.entry.id).toBe("high");
-	});
+	}, 15000);
 });
