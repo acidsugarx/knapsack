@@ -5,6 +5,7 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { discoverVault, searchVault } from "../../bridge/obsidian";
 import { writeNote } from "../../bridge/obsidian-notes";
@@ -16,8 +17,11 @@ import { getProjectRoot } from "../../core/project";
 import { retrieve } from "../../pillar1-compression/ccr";
 import { createDefaultRegistry } from "../../pillar1-compression/default-registry";
 import { outputCache } from "../../pillar1-compression/output-cache";
+import { dreamGather, dreamOrient, dreamPrune } from "../../pillar2-memory/dream";
 import { checkDrift, formatDriftReport } from "../../pillar2-memory/drift";
 import { initEmbeddings } from "../../pillar2-memory/embeddings";
+import { ingestSource } from "../../pillar2-memory/ingest";
+import { deterministicLint } from "../../pillar2-memory/lint";
 import { scoreAndRank } from "../../pillar2-memory/scoring";
 import { knapsackPromptGuidance } from "../../system-prompt";
 
@@ -237,6 +241,47 @@ export default (async (_ctx: unknown) => {
 					if (!store?.vaultPath) return "No Obsidian vault found.";
 					const notePath = writeNote(store.vaultPath, args.title, args.content);
 					return notePath ? `✅ [[${notePath.replace(".md", "")}]]` : "Failed to write note.";
+				},
+			}),
+			knapsack_dream: tool({
+				description:
+					"Run a dream consolidation phase — promotes pending buffer entries to live memory",
+				args: {
+					phase: tool.schema
+						.enum(["orient", "gather", "prune"])
+						.describe("orient, gather, or prune"),
+				},
+				async execute(args) {
+					await ensureInit();
+					if (!db || !store) return "Knapsack not initialized.";
+					if (args.phase === "orient") return `Pending: ${dreamOrient(db, store).pendingBuffer}`;
+					if (args.phase === "gather") return `Entries: ${dreamGather(db, store, 20).length}`;
+					return `Candidates: ${dreamPrune(db, store).length}`;
+				},
+			}),
+			knapsack_lint: tool({
+				description: "Run deterministic memory health check",
+				args: {},
+				async execute() {
+					await ensureInit();
+					if (!db || !store) return "Knapsack not initialized.";
+					const wikiDir = join(dirname(store.dbPath), "wiki");
+					const result = deterministicLint(wikiDir, db, store);
+					return `Health: ${result.healthScore}/100 · ${result.findings.length} findings across ${result.totalPages} pages`;
+				},
+			}),
+			knapsack_ingest: tool({
+				description: "Ingest an external file into raw store + buffer",
+				args: { source: tool.schema.string().describe("File path") },
+				async execute(args) {
+					await ensureInit();
+					if (!db || !store) return "Knapsack not initialized.";
+					try {
+						const result = ingestSource(db, store, args.source);
+						return `Ingested ${result.bytesRead} bytes · hash ${result.rawHash}`;
+					} catch (e) {
+						return `Failed: ${e instanceof Error ? e.message : String(e)}`;
+					}
 				},
 			}),
 		},

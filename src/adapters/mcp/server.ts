@@ -39,6 +39,7 @@
  * @module knapsack-mcp-server
  */
 
+import { dirname, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { searchVault } from "../../bridge/obsidian";
@@ -52,8 +53,11 @@ import {
 import type { KnapsackStore } from "../../core/types";
 import { retrieve } from "../../pillar1-compression/ccr";
 import { outputCache } from "../../pillar1-compression/output-cache";
+import { dreamGather, dreamOrient, dreamPrune } from "../../pillar2-memory/dream";
 import { checkDrift, formatDriftReport } from "../../pillar2-memory/drift";
 import { embed, isAvailable, serializeEmbedding } from "../../pillar2-memory/embeddings";
+import { ingestSource } from "../../pillar2-memory/ingest";
+import { deterministicLint } from "../../pillar2-memory/lint";
 import { scoreAndRank } from "../../pillar2-memory/scoring";
 
 /**
@@ -327,6 +331,63 @@ export function createKnapsackMcpServer(db: KnapsackDB, store: KnapsackStore): M
 					},
 				],
 			};
+		},
+	);
+
+	server.tool(
+		"knapsack_dream",
+		"Run a dream consolidation phase — orient, gather, or prune",
+		{ phase: z.enum(["orient", "gather", "prune"]).describe("Dream phase") },
+		async (params) => {
+			if (params.phase === "orient") {
+				const ctx = dreamOrient(db, store);
+				return {
+					content: [
+						{ type: "text", text: `Pending: ${ctx.pendingBuffer} · Total: ${ctx.totalMemories}` },
+					],
+				};
+			}
+			if (params.phase === "gather") {
+				const entries = dreamGather(db, store, 20);
+				return { content: [{ type: "text", text: `${entries.length} entries gathered` }] };
+			}
+			const candidates = dreamPrune(db, store);
+			return { content: [{ type: "text", text: `${candidates.length} archive candidates` }] };
+		},
+	);
+
+	server.tool("knapsack_lint", "Run deterministic memory health check", {}, async () => {
+		const wikiDir = join(dirname(store.dbPath), "wiki");
+		const result = deterministicLint(wikiDir, db, store);
+		return {
+			content: [
+				{
+					type: "text",
+					text: `Health: ${result.healthScore}/100 · ${result.findings.length} findings`,
+				},
+			],
+		};
+	});
+
+	server.tool(
+		"knapsack_ingest",
+		"Ingest an external file into raw store + buffer",
+		{ source: z.string().describe("File path to ingest") },
+		async (params) => {
+			try {
+				const result = ingestSource(db, store, params.source);
+				return {
+					content: [
+						{ type: "text", text: `Ingested ${result.bytesRead} bytes · hash ${result.rawHash}` },
+					],
+				};
+			} catch (e) {
+				return {
+					content: [
+						{ type: "text", text: `Failed: ${e instanceof Error ? e.message : String(e)}` },
+					],
+				};
+			}
 		},
 	);
 
