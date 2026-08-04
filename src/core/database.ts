@@ -586,11 +586,16 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			const allCandidates: MemoryEntry[] = [];
 
 			for (const term of terms.slice(0, 5)) {
-				const rows = execRows(
-					db,
-					"SELECT * FROM memory WHERE LOWER(content) LIKE ? AND (project IS NULL OR project = ?) LIMIT ?",
-					[`%${term}%`, project ?? null, limit],
-				);
+				const rows = project
+					? execRows(
+							db,
+							"SELECT * FROM memory WHERE LOWER(content) LIKE ? AND (project IS NULL OR project = ?) LIMIT ?",
+							[`%${term}%`, project, limit],
+						)
+					: execRows(db, "SELECT * FROM memory WHERE LOWER(content) LIKE ? LIMIT ?", [
+							`%${term}%`,
+							limit,
+						]);
 				for (const row of rows) {
 					const entry = rowToMemory(row);
 					if (!seen.has(entry.id)) {
@@ -611,11 +616,11 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 			// 3-gram with it. Catches "recieve" → "receive", "persistant" →
 			// "persistent", etc. without adding a dep.
 			if (results.length === 0 && terms.length > 0) {
-				const fallback = execRows(
-					db,
-					"SELECT * FROM memory WHERE (project IS NULL OR project = ?)",
-					[project ?? null],
-				).map(rowToMemory);
+				const fallback = project
+					? execRows(db, "SELECT * FROM memory WHERE project IS NULL OR project = ?", [
+							project,
+						]).map(rowToMemory)
+					: execRows(db, "SELECT * FROM memory").map(rowToMemory);
 				const fuzzy = fuzzyMatchAnyTerm(terms, fallback);
 				results = typeFilter ? fuzzy.filter((r) => typeFilter.includes(r.type)) : fuzzy;
 			}
@@ -636,14 +641,25 @@ export async function createDB(dbPath: string): Promise<KnapsackDB> {
 		},
 
 		getRecentMemory(limit = 20, project, sessionId) {
+			if (project) {
+				const rows = execRows(
+					db,
+					`SELECT * FROM memory
+					 WHERE (project IS NULL OR project = ?)
+					 AND (scope != 'session' OR source_session = ?)
+					 ORDER BY updated_at DESC
+					 LIMIT ?`,
+					[project, sessionId ?? null, limit],
+				);
+				return rows.map(rowToMemory);
+			}
 			const rows = execRows(
 				db,
 				`SELECT * FROM memory
-         WHERE (project IS NULL OR project = ?)
-         AND (scope != 'session' OR source_session = ?)
-         ORDER BY updated_at DESC
-         LIMIT ?`,
-				[project ?? null, sessionId ?? null, limit],
+				 WHERE scope != 'session' OR source_session = ?
+				 ORDER BY updated_at DESC
+				 LIMIT ?`,
+				[sessionId ?? null, limit],
 			);
 			return rows.map(rowToMemory);
 		},
